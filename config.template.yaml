@@ -1,0 +1,86 @@
+# job-scout configuration
+# Copy this file to config.yaml and fill in your values before running setup.sh
+
+profile:
+  name: "Your Name"
+  target_title: "your target job title"
+
+  keywords:
+    critical:                     # +5 pts each — your most important skills
+      - "your-core-skill"
+    strong:                       # +3 pts each
+      - "another-skill"
+    moderate:                     # +1.5 pts each
+      - "general-skill"
+    weak:                         # +1 pt each
+      - "common-tool"
+
+  target_companies:
+    tier1:                        # +15 pts — dream companies
+      - "Dream Company A"
+    tier2:                        # +10 pts — great companies
+      - "Great Company B"
+    tier3:                        # +6 pts — good companies
+      - "Good Company C"
+
+  dealbreakers:
+    title_patterns:               # jobs matching these title patterns score 0
+      - "intern"
+    company_patterns: []          # companies to always skip
+    description_patterns:         # description keywords that disqualify a job
+      - "security clearance required"
+
+  target_levels:
+    - "Senior"
+    - "Lead"
+
+  title_signals:                  # bonus points when job title contains these phrases
+    - pattern: "your target role"
+      points: 12
+    - pattern: "related role"
+      points: 8
+
+search:
+  terms:
+    - "software engineer"         # job titles to search for — add as many as you like
+    - "backend engineer"
+  locations:
+    - "United States"             # search location(s)
+  sites:
+    - linkedin
+    - indeed
+    - google
+  results_per_site: 25            # jobs to fetch per site per search term
+  hours_old: 72                   # only include jobs posted in the last N hours
+  distance_miles: 50
+
+scraping:
+  delay_min_seconds: 3.0          # wait at least this long between requests (be polite)
+  delay_max_seconds: 8.0
+  request_timeout: 15
+  max_retries: 2
+  fetch_descriptions: true
+
+scoring:
+  min_alert_score: 45             # send email alert when a job scores at or above this
+  min_display_score: 20           # show jobs in CLI list at or above this score
+  alert_states:                   # only alert for jobs in these states (empty = all states)
+    - "CA"
+    - "California"
+
+notifications:
+  macos:
+    enabled: true                 # macOS system notifications (no setup needed)
+    sound: "Ping"
+  email:
+    enabled: true                 # email alerts via Gmail SMTP
+    smtp_host: smtp.gmail.com
+    smtp_port: 587
+    username: you@gmail.com       # your Gmail address
+    app_password: xxxx-xxxx-xxxx-xxxx   # Gmail App Password — NOT your login password
+    to_address: you@gmail.com     # where to receive alerts (can be same as username)
+
+schedule:
+  interval_hours: 6               # run scraper every N hours
+  start_hour: 8                   # don't run before this hour (local time)
+  end_hour: 23                    # don't run after this hour (local time)

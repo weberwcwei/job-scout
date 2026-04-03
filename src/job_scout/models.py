@@ -1,0 +1,116 @@
+"""Pydantic data models for jobs, scrape runs, and search params."""
+
+from __future__ import annotations
+
+import hashlib
+from datetime import date, datetime
+from enum import Enum
+
+from pydantic import BaseModel, Field, computed_field
+
+
+class Site(str, Enum):
+    LINKEDIN = "linkedin"
+    INDEED = "indeed"
+    GOOGLE = "google"
+
+
+class JobType(str, Enum):
+    FULL_TIME = "full_time"
+    PART_TIME = "part_time"
+    CONTRACT = "contract"
+    INTERNSHIP = "internship"
+    TEMPORARY = "temporary"
+
+
+class CompInterval(str, Enum):
+    YEARLY = "yearly"
+    MONTHLY = "monthly"
+    WEEKLY = "weekly"
+    DAILY = "daily"
+    HOURLY = "hourly"
+
+
+class Compensation(BaseModel):
+    min_amount: float | None = None
+    max_amount: float | None = None
+    currency: str = "USD"
+    interval: CompInterval | None = None
+
+    @computed_field
+    @property
+    def display(self) -> str:
+        if not self.min_amount:
+            return ""
+        parts = [f"${self.min_amount:,.0f}"]
+        if self.max_amount and self.max_amount != self.min_amount:
+            parts.append(f"- ${self.max_amount:,.0f}")
+        if self.interval:
+            parts.append(f"/{self.interval.value}")
+        return " ".join(parts)
+
+
+class Location(BaseModel):
+    city: str | None = None
+    state: str | None = None
+    country: str | None = "US"
+    is_remote: bool = False
+
+    @computed_field
+    @property
+    def display(self) -> str:
+        parts = [p for p in [self.city, self.state] if p]
+        if self.is_remote:
+            parts.append("(Remote)")
+        return ", ".join(parts) if parts else "Unknown"
+
+
+class Job(BaseModel):
+    """Core job posting model used across all scrapers."""
+
+    source: Site
+    source_id: str
+    url: str
+    title: str
+    company: str
+    location: Location = Field(default_factory=Location)
+    description: str = ""
+    job_type: list[JobType] = Field(default_factory=list)
+    compensation: Compensation | None = None
+    date_posted: date | None = None
+    date_scraped: datetime = Field(default_factory=datetime.now)
+    score: int = 0
+    score_breakdown: dict = Field(default_factory=dict)
+    status: str = "new"
+    notes: str = ""
+    applied_date: date | None = None
+
+    @computed_field
+    @property
+    def dedup_key(self) -> str:
+        raw = f"{self.source.value}:{self.source_id}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+class ScrapeRun(BaseModel):
+    """Metadata for a single scrape execution."""
+
+    id: int | None = None
+    started_at: datetime = Field(default_factory=datetime.now)
+    finished_at: datetime | None = None
+    site: Site
+    search_term: str
+    location: str
+    jobs_found: int = 0
+    jobs_new: int = 0
+    error: str | None = None
+
+
+class ScrapeParams(BaseModel):
+    """Parameters passed to a scraper."""
+
+    search_term: str
+    location: str
+    results_wanted: int = 25
+    hours_old: int = 72
+    distance_miles: int = 50
