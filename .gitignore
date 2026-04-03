@@ -6,3 +6,4 @@ config.yaml
 *.egg-info/
 dist/
 .DS_Store
+test_config*.yaml
