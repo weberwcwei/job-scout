@@ -20,3 +20,7 @@ search:
 #     username: you@gmail.com
 #     app_password: xxxx-xxxx-xxxx-xxxx
 #     to_address: you@gmail.com
+#   telegram:
+#     enabled: true
+#     bot_token: ""          # get from @BotFather
+#     chat_id: ""            # your chat ID

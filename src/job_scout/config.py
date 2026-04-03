@@ -93,9 +93,16 @@ class EmailConfig(BaseModel):
     to_address: str = ""
 
 
+class TelegramConfig(BaseModel):
+    enabled: bool = False
+    bot_token: str = ""
+    chat_id: str = ""
+
+
 class NotificationsConfig(BaseModel):
     macos: MacOSNotifyConfig = MacOSNotifyConfig()
     email: EmailConfig = EmailConfig()
+    telegram: TelegramConfig = TelegramConfig()
 
 
 class ScheduleConfig(BaseModel):
@@ -111,6 +118,7 @@ class AppConfig(BaseModel):
     scoring: ScoringConfig = ScoringConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     schedule: ScheduleConfig = ScheduleConfig()
+    db_path: Path | None = None
 
 
 CONFIG_DIR = Path.home() / ".local" / "share" / "job-scout"

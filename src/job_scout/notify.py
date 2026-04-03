@@ -1,4 +1,4 @@
-"""Notification system: macOS native + email."""
+"""Notification system: macOS native + email + Telegram."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import smtplib
 import subprocess
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import httpx
 
 from job_scout.config import NotificationsConfig
 from job_scout.models import Job
@@ -25,6 +27,8 @@ class Notifier:
             self._notify_macos(jobs)
         if self.config.email.enabled:
             self._notify_email(jobs)
+        if self.config.telegram.enabled:
+            self._notify_telegram(jobs)
 
     def _notify_macos(self, jobs: list[Job]) -> None:
         if len(jobs) == 1:
@@ -78,6 +82,53 @@ class Notifier:
         )
 
 
+    def _notify_telegram(self, jobs: list[Job]) -> None:
+        cfg = self.config.telegram
+        if not cfg.bot_token or not cfg.chat_id:
+            log.warning("Telegram bot_token or chat_id not configured")
+            return
+
+        lines = [f"*job\\-scout* — {len(jobs)} new match\\(es\\)\n"]
+        for job in jobs[:10]:
+            salary = job.compensation.display if job.compensation else "No salary"
+            kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            lines.append(
+                f"*{job.score}* \\(kw:{kw}\\) \\| [{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
+                f"  {_esc_md(job.location.display)} \\| {_esc_md(salary)}"
+            )
+        text = "\n".join(lines)
+
+        send_telegram(text=text, cfg=cfg)
+
+
+def send_telegram(text: str, cfg) -> bool:
+    """Send a message via Telegram Bot API."""
+    if not cfg.bot_token or not cfg.chat_id:
+        log.error("Telegram not configured (missing bot_token or chat_id)")
+        return False
+
+    url = f"https://api.telegram.org/bot{cfg.bot_token}/sendMessage"
+    try:
+        resp = httpx.post(
+            url,
+            json={
+                "chat_id": cfg.chat_id,
+                "text": text,
+                "parse_mode": "MarkdownV2",
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            log.info("Telegram message sent")
+            return True
+        log.error(f"Telegram API returned {resp.status_code}: {resp.text}")
+        return False
+    except Exception as e:
+        log.error(f"Telegram notification failed: {e}")
+        return False
+
+
 def send_email(subject: str, body: str, cfg) -> bool:
     """Send a plain-text email via Gmail SMTP."""
     if not cfg.username or not cfg.app_password or not cfg.to_address:
@@ -111,3 +162,10 @@ def send_email(subject: str, body: str, cfg) -> bool:
 
 def _esc(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _esc_md(s: str) -> str:
+    """Escape special characters for Telegram MarkdownV2."""
+    for ch in r"_*[]()~`>#+-=|{}.!":
+        s = s.replace(ch, f"\\{ch}")
+    return s

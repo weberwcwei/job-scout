@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 
-from job_scout.config import AppConfig, ScrapingConfig, SearchConfig
+from job_scout.config import AppConfig, ScrapingConfig, SearchConfig, TelegramConfig
 
 
 class TestScrapingConfigDefaults:
@@ -70,3 +71,53 @@ class TestBackwardCompat:
         }
         cfg = AppConfig(**raw)
         assert cfg.scraping.proxies == ["http://myproxy:8080"]
+
+
+class TestTelegramConfig:
+    def test_defaults(self):
+        cfg = TelegramConfig()
+        assert cfg.enabled is False
+        assert cfg.bot_token == ""
+        assert cfg.chat_id == ""
+
+    def test_from_dict(self):
+        cfg = TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="999")
+        assert cfg.enabled is True
+        assert cfg.bot_token == "123:ABC"
+        assert cfg.chat_id == "999"
+
+    def test_telegram_in_notifications(self):
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+            "notifications": {
+                "telegram": {
+                    "enabled": True,
+                    "bot_token": "123:ABC",
+                    "chat_id": "42",
+                }
+            },
+        }
+        cfg = AppConfig(**raw)
+        assert cfg.notifications.telegram.enabled is True
+        assert cfg.notifications.telegram.bot_token == "123:ABC"
+        assert cfg.notifications.telegram.chat_id == "42"
+
+
+class TestDbPath:
+    def test_db_path_none_by_default(self):
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+        }
+        cfg = AppConfig(**raw)
+        assert cfg.db_path is None
+
+    def test_db_path_custom(self):
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+            "db_path": "/tmp/custom.db",
+        }
+        cfg = AppConfig(**raw)
+        assert cfg.db_path == Path("/tmp/custom.db")

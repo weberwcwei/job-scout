@@ -81,14 +81,20 @@ notifications:
     enabled: true                 # macOS system notifications (no setup needed)
     sound: "Ping"
   email:
-    enabled: true                 # email alerts via Gmail SMTP
+    enabled: false                # email alerts via Gmail SMTP
     smtp_host: smtp.gmail.com
     smtp_port: 587
     username: you@gmail.com       # your Gmail address
     app_password: xxxx-xxxx-xxxx-xxxx   # Gmail App Password — NOT your login password
     to_address: you@gmail.com     # where to receive alerts (can be same as username)
+  telegram:
+    enabled: false                # Telegram Bot API alerts
+    bot_token: ""                 # get from @BotFather on Telegram
+    chat_id: ""                   # your Telegram user/chat ID
 
 schedule:
   interval_hours: 6               # run scraper every N hours
   start_hour: 8                   # don't run before this hour (local time)
   end_hour: 23                    # don't run after this hour (local time)
+
+# db_path: /path/to/custom/job-scout.db  # override default DB location

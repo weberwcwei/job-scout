@@ -36,8 +36,10 @@ def _get_config():
     return load_config(DEFAULT_CONFIG_PATH)
 
 
-def _get_db():
-    return JobDB(DEFAULT_DB_PATH)
+def _get_db(cfg: AppConfig | None = None):
+    path = cfg.db_path if cfg and cfg.db_path else DEFAULT_DB_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return JobDB(path)
 
 
 @app.command()
@@ -48,7 +50,7 @@ def scrape(
 ):
     """Run scrapers, score jobs, store results, and notify on new matches."""
     cfg = _get_config()
-    db = _get_db() if not dry_run else None
+    db = _get_db(cfg) if not dry_run else None
     scorer = JobScorer(cfg.profile)
     notifier = Notifier(cfg.notifications)
 
@@ -158,8 +160,8 @@ def list_jobs(
     limit: int = typer.Option(30, help="Max results"),
 ):
     """List jobs in a rich table, sorted by score."""
-    db = _get_db()
     cfg = _get_config()
+    db = _get_db(cfg)
     min_s = min_score if min_score is not None else cfg.scoring.min_display_score
 
     jobs = db.get_jobs(status=status, min_score=min_s, company=company, limit=limit)
@@ -203,7 +205,8 @@ def list_jobs(
 @app.command()
 def view(job_id: int = typer.Argument(..., help="Job ID to view")):
     """Show full details of a job."""
-    db = _get_db()
+    cfg = _get_config()
+    db = _get_db(cfg)
     job = db.get_job(job_id)
     db.close()
 
@@ -236,7 +239,8 @@ def mark_applied(
     open_url: bool = typer.Option(False, "--open", help="Open job URL in browser"),
 ):
     """Mark a job as applied."""
-    db = _get_db()
+    cfg = _get_config()
+    db = _get_db(cfg)
     job = db.get_job(job_id)
     if not job:
         console.print(f"[red]Job #{job_id} not found.[/red]")
@@ -258,7 +262,8 @@ def reject(
     notes: str = typer.Option("", help="Rejection reason"),
 ):
     """Mark a job as rejected."""
-    db = _get_db()
+    cfg = _get_config()
+    db = _get_db(cfg)
     db.update_status(job_id, "rejected", notes)
     db.close()
     console.print(f"[dim]Job #{job_id} rejected.[/dim]")
@@ -267,7 +272,8 @@ def reject(
 @app.command()
 def stats():
     """Show summary statistics."""
-    db = _get_db()
+    cfg = _get_config()
+    db = _get_db(cfg)
     s = db.get_stats()
     db.close()
 
@@ -414,6 +420,7 @@ def check():
     console.print(f"  Search: {len(cfg.search.terms)} term(s), {len(cfg.search.locations)} location(s)")
     console.print(f"  Sites: {', '.join(cfg.search.sites)}")
     console.print(f"  Email alerts: {'enabled' if cfg.notifications.email.enabled else 'disabled'}")
+    console.print(f"  Telegram alerts: {'enabled' if cfg.notifications.telegram.enabled else 'disabled'}")
 
     # 5. Test SMTP if email is enabled
     if cfg.notifications.email.enabled:
@@ -433,16 +440,38 @@ def check():
             except Exception as e:
                 console.print(f" [red]FAILED[/red]: {e}")
 
+    # 6. Test Telegram if enabled
+    if cfg.notifications.telegram.enabled:
+        tcfg = cfg.notifications.telegram
+        if not tcfg.bot_token or not tcfg.chat_id:
+            console.print("[yellow]  Telegram enabled but bot_token or chat_id missing.[/yellow]")
+        else:
+            console.print("  Testing Telegram bot...", end="")
+            try:
+                import httpx
+
+                resp = httpx.get(
+                    f"https://api.telegram.org/bot{tcfg.bot_token}/getMe",
+                    timeout=10,
+                )
+                if resp.status_code == 200 and resp.json().get("ok"):
+                    bot_name = resp.json()["result"].get("username", "?")
+                    console.print(f" [green]OK[/green] (@{bot_name})")
+                else:
+                    console.print(f" [red]FAILED[/red]: {resp.text}")
+            except Exception as e:
+                console.print(f" [red]FAILED[/red]: {e}")
+
     console.print()
     console.print("Next: [bold]job-scout scrape --dry-run[/bold]")
 
 
 @app.command()
 def digest():
-    """Send daily email digest of top job matches."""
+    """Send daily digest of top job matches via email and/or Telegram."""
     from datetime import timedelta
     cfg = _get_config()
-    db = _get_db()
+    db = _get_db(cfg)
 
     # Get jobs from last 24h with score >= min_alert_score
     cutoff = datetime.now() - timedelta(hours=24)
@@ -456,27 +485,47 @@ def digest():
         console.print("[dim]No new matches in the last 24h.[/dim]")
         return
 
-    lines = [f"job-scout digest — {len(recent)} match(es) in the last 24h\n"]
-    for job in recent[:10]:
-        salary = job.compensation.display if job.compensation else "No salary"
-        lines.append(
-            f"[{job.score}] {job.company}: {job.title}\n"
-            f"  {job.location.display} | {salary}\n"
-            f"  {job.url}\n"
-        )
-    body = "\n".join(lines)
+    sent_any = False
 
-    from job_scout.notify import send_email
-    success = send_email(
-        subject=f"job-scout digest: {len(recent)} match(es)",
-        body=body,
-        cfg=cfg.notifications.email,
-    )
+    # Email digest
+    if cfg.notifications.email.enabled:
+        lines = [f"job-scout digest — {len(recent)} match(es) in the last 24h\n"]
+        for job in recent[:10]:
+            salary = job.compensation.display if job.compensation else "No salary"
+            lines.append(
+                f"[{job.score}] {job.company}: {job.title}\n"
+                f"  {job.location.display} | {salary}\n"
+                f"  {job.url}\n"
+            )
+        from job_scout.notify import send_email
+        if send_email(
+            subject=f"job-scout digest: {len(recent)} match(es)",
+            body="\n".join(lines),
+            cfg=cfg.notifications.email,
+        ):
+            sent_any = True
 
-    if success:
+    # Telegram digest
+    if cfg.notifications.telegram.enabled:
+        from job_scout.notify import send_telegram, _esc_md
+        tg_lines = [f"*job\\-scout digest* — {len(recent)} match\\(es\\)\n"]
+        for job in recent[:10]:
+            salary = job.compensation.display if job.compensation else "No salary"
+            kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            tg_lines.append(
+                f"*{job.score}* \\(kw:{kw}\\) \\| [{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
+                f"  {_esc_md(job.location.display)} \\| {_esc_md(salary)}"
+            )
+        if send_telegram(
+            text="\n".join(tg_lines),
+            cfg=cfg.notifications.telegram,
+        ):
+            sent_any = True
+
+    if sent_any:
         console.print(f"[green]Digest sent — {len(recent)} matches.[/green]")
     else:
-        console.print("[red]Failed to send digest. Check email config.[/red]")
+        console.print("[red]Failed to send digest. Check notification config.[/red]")
 
 
 @app.callback()
