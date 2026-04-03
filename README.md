@@ -38,7 +38,7 @@ You need a Mac with Python 3.12+ ([download](https://www.python.org/downloads/))
 ### Step 1: Install
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/weberwcwei/job-scout.git
 cd job-scout
 chmod +x setup.sh
 ./setup.sh
