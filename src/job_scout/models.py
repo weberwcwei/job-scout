@@ -13,6 +13,9 @@ class Site(str, Enum):
     LINKEDIN = "linkedin"
     INDEED = "indeed"
     GOOGLE = "google"
+    GLASSDOOR = "glassdoor"
+    ZIPRECRUITER = "ziprecruiter"
+    BAYT = "bayt"
 
 
 class JobType(str, Enum):

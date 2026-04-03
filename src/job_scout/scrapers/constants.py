@@ -129,3 +129,92 @@ GOOGLE_HEADERS_ASYNC = {
     "sec-fetch-site": "same-origin",
     "user-agent": CHROME_UA,
 }
+
+# --- Glassdoor ---
+GLASSDOOR_BASE_URL = "https://www.glassdoor.com"
+GLASSDOOR_API_URL = f"{GLASSDOOR_BASE_URL}/graph"
+
+GLASSDOOR_HEADERS = {
+    "authority": "www.glassdoor.com",
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.9",
+    "content-type": "application/json",
+    "user-agent": CHROME_UA,
+    "apollographql-client-name": "job-search-next",
+    "apollographql-client-version": "4.65.5",
+}
+
+GLASSDOOR_SEARCH_QUERY = """
+    query JobSearchQuery {{
+        jobListings(
+            contextHolder: {{
+                searchParams: {{
+                    keyword: "{keyword}"
+                    locationId: 0
+                    locationName: "{location}"
+                    numPerPage: 30
+                    pageNumber: {page}
+                    filterParams: [
+                        {date_filter}
+                    ]
+                }}
+            }}
+        ) {{
+            jobListings {{
+                jobview {{
+                    header {{
+                        jobLink
+                        jobTitleText
+                        employerNameFromSearch
+                        ageInDays
+                        payPercentile10
+                        payPercentile50
+                        payPercentile90
+                        payCurrency
+                        payPeriod
+                    }}
+                    job {{
+                        jobReqId
+                        description
+                        listingId
+                        jobTitleId
+                    }}
+                    overview {{
+                        name
+                        shortName
+                    }}
+                    gapiEntity {{
+                        trackingUrl
+                    }}
+                    locationName
+                    remoteWorkTypes
+                }}
+            }}
+            totalJobsCount
+            paginationCursors {{
+                cursor
+                pageNumber
+            }}
+        }}
+    }}
+"""
+
+# --- ZipRecruiter ---
+ZIPRECRUITER_API_URL = "https://api.ziprecruiter.com/jobs-app/jobs"
+
+ZIPRECRUITER_HEADERS = {
+    "accept": "application/json",
+    "accept-language": "en-US,en;q=0.9",
+    "user-agent": CHROME_UA,
+    "x-zr-zva-override": "100000000;v1",
+}
+
+# --- Bayt ---
+BAYT_BASE_URL = "https://www.bayt.com"
+BAYT_SEARCH_URL = f"{BAYT_BASE_URL}/en/international/jobs/"
+
+BAYT_HEADERS = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "user-agent": CHROME_UA,
+}
