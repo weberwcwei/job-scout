@@ -91,14 +91,16 @@ def scrape(
 
     max_workers = min(cfg.scraping.max_workers, len(tasks)) if tasks else 1
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_run_one, task): task for task in tasks}
+        futures = {pool.submit(_run_one, task): (task, datetime.now()) for task in tasks}
         for future in as_completed(futures):
+            task, started_at = futures[future]
             site_name, search_term, location, jobs, error = future.result()
 
             run = ScrapeRun(
                 site=Site(site_name),
                 search_term=search_term,
                 location=location,
+                started_at=started_at,
             )
             run_id = db.record_run(run) if db else None
 

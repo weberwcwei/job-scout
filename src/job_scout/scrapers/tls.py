@@ -16,6 +16,7 @@ class ResponseAdapter:
         self.status_code: int = resp.status_code
         self.text: str = resp.text
         self.url = resp.url
+        self.cookies = resp.cookies
 
     @property
     def is_success(self) -> bool:
