@@ -1,6 +1,6 @@
 # job-scout
 
-Automated job scraper that runs every 6 hours, scores matches against your profile, and emails you the best ones. Scrapes LinkedIn, Indeed, and Google Jobs. Zero token cost — pure Python + launchd.
+Automated job scraper that runs every 6 hours, scores matches against your profile, and emails you the best ones. Scrapes LinkedIn, Indeed, Google Jobs, Glassdoor, ZipRecruiter, and Bayt. Zero token cost — pure Python + launchd.
 
 ## Prerequisites
 
@@ -76,6 +76,42 @@ Jobs scoring at or above this number trigger an email alert. Default: 45.
 ### `scoring.alert_states`
 Only send alerts for jobs in specific states. Empty list means all states.
 
+## Advanced Configuration
+
+### Proxy Support
+
+Add proxies for round-robin rotation to avoid rate limits:
+```yaml
+scraping:
+  proxies:
+    - "http://user:pass@host:port"
+    - "http://host2:port2"
+```
+
+### TLS Fingerprinting
+
+For sites with aggressive bot detection, enable browser-like TLS fingerprints:
+```bash
+pip install job-scout[tls]
+```
+Then set `scraping.use_tls_fingerprinting: true` in config.yaml.
+
+### Concurrent Scraping
+
+Scraping runs in parallel by default (3 threads). Adjust with:
+```yaml
+scraping:
+  max_workers: 5
+```
+
+### Pagination
+
+Control how many pages each scraper fetches:
+```yaml
+scraping:
+  max_pages: 5   # default: 3
+```
+
 ## CLI Commands
 
 ```bash
@@ -135,7 +171,7 @@ tail -f ~/.local/share/job-scout/logs/stdout.log
 Follow the error messages — they tell you exactly which fields need fixing.
 
 **No results from LinkedIn/Indeed**
-Job board scraping can hit rate limits. Wait an hour and try again. If persistent, increase `scraping.delay_min_seconds` in config.yaml.
+Job board scraping can hit rate limits. Wait an hour and try again. If persistent, add proxies to `scraping.proxies` in config.yaml, or enable `scraping.use_tls_fingerprinting` (requires `pip install job-scout[tls]`).
 
 **Gmail authentication error**
 Make sure you're using an App Password (not your Gmail login password). Run `job-scout check` to test the connection.
@@ -146,6 +182,10 @@ Run `.venv/bin/job-scout schedule --install` from the project directory.
 ## Notes
 
 - The Indeed scraper uses a well-known public API key embedded in the Indeed mobile app. This is not a personal secret, but Indeed could revoke it at any time.
+
+## Acknowledgments
+
+Proxy rotation, TLS fingerprinting, concurrent scraping, and the Glassdoor/ZipRecruiter/Bayt scrapers were inspired by [JobSpy](https://github.com/speedyapply/JobSpy) (MIT license).
 
 ## License
 

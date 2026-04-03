@@ -6,4 +6,5 @@ config.yaml
 *.egg-info/
 dist/
 .DS_Store
+CLAUDE.md
 test_config*.yaml
