@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class KeywordConfig(BaseModel):
@@ -45,7 +45,7 @@ class ProfileConfig(BaseModel):
 class SearchConfig(BaseModel):
     terms: list[str]
     locations: list[str]
-    sites: list[str] = ["linkedin", "indeed", "google"]
+    sites: list[str] = ["linkedin", "indeed", "google", "glassdoor", "ziprecruiter"]
     results_per_site: int = 25
     hours_old: int = 72
     distance_miles: int = 50
@@ -56,8 +56,20 @@ class ScrapingConfig(BaseModel):
     delay_max_seconds: float = 8.0
     request_timeout: int = 15
     max_retries: int = 2
+    max_pages: int = 3
     fetch_descriptions: bool = True
-    proxy: str | None = None
+    proxies: list[str] = []
+    use_tls_fingerprinting: bool = False
+    max_workers: int = 3
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_proxy(cls, data):
+        if isinstance(data, dict) and "proxy" in data and "proxies" not in data:
+            p = data.pop("proxy")
+            if p:
+                data["proxies"] = [p]
+        return data
 
 
 class ScoringConfig(BaseModel):

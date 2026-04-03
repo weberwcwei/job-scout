@@ -39,9 +39,11 @@ class GoogleScraper(BaseScraper):
                 return jobs
 
             # Pagination
-            while len(jobs) < params.results_wanted and cursor:
+            pages = 1  # initial page already fetched
+            while len(jobs) < params.results_wanted and cursor and pages < self.config.max_pages:
                 log.info(f"Google search page, {len(jobs)} jobs so far")
                 page_jobs, cursor = self._get_next_page(client, cursor, seen_urls)
+                pages += 1
                 if not page_jobs:
                     break
                 jobs.extend(page_jobs)

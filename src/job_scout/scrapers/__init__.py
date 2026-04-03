@@ -21,18 +21,34 @@ class BaseScraper(ABC):
     def __init__(self, config: ScrapingConfig):
         self.config = config
         self._seen_ids: set[str] = set()
+        self._proxy_index: int = 0
 
     @abstractmethod
     def scrape(self, params: ScrapeParams) -> list[Job]:
         ...
 
-    def _make_client(self) -> httpx.Client:
+    def _next_proxy(self) -> str | None:
+        if not self.config.proxies:
+            return None
+        proxy = self.config.proxies[self._proxy_index % len(self.config.proxies)]
+        self._proxy_index += 1
+        return proxy
+
+    def _make_client(self):
+        proxy = self._next_proxy()
+        if self.config.use_tls_fingerprinting:
+            try:
+                from job_scout.scrapers.tls import create_tls_client
+
+                return create_tls_client(proxy=proxy, timeout=self.config.request_timeout)
+            except ImportError:
+                log.warning("curl_cffi not installed, falling back to httpx")
         kwargs: dict = {
             "timeout": self.config.request_timeout,
             "follow_redirects": True,
         }
-        if self.config.proxy:
-            kwargs["proxy"] = self.config.proxy
+        if proxy:
+            kwargs["proxy"] = proxy
         return httpx.Client(**kwargs)
 
     def _get_with_retry(
@@ -96,14 +112,20 @@ class BaseScraper(ABC):
 
 
 def get_scraper(site: str, config: ScrapingConfig) -> BaseScraper:
+    from job_scout.scrapers.bayt import BaytScraper
+    from job_scout.scrapers.glassdoor import GlassdoorScraper
     from job_scout.scrapers.google import GoogleScraper
     from job_scout.scrapers.indeed import IndeedScraper
     from job_scout.scrapers.linkedin import LinkedInScraper
+    from job_scout.scrapers.ziprecruiter import ZipRecruiterScraper
 
     registry = {
         "linkedin": LinkedInScraper,
         "indeed": IndeedScraper,
         "google": GoogleScraper,
+        "glassdoor": GlassdoorScraper,
+        "ziprecruiter": ZipRecruiterScraper,
+        "bayt": BaytScraper,
     }
     cls = registry.get(site)
     if not cls:

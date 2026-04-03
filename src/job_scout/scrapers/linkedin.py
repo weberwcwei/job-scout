@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime
 
 from bs4 import BeautifulSoup
@@ -11,7 +10,6 @@ from bs4 import BeautifulSoup
 from job_scout.models import Compensation, Job, Location, ScrapeParams, Site
 from job_scout.scrapers import BaseScraper
 from job_scout.scrapers.constants import (
-    LINKEDIN_BASE_URL,
     LINKEDIN_HEADERS,
     LINKEDIN_JOB_URL,
     LINKEDIN_SEARCH_URL,
@@ -31,7 +29,7 @@ class LinkedInScraper(BaseScraper):
         seconds_old = params.hours_old * 3600 if params.hours_old else None
 
         with self._make_client() as client:
-            while len(jobs) < params.results_wanted and start < 1000:
+            while len(jobs) < params.results_wanted and start < self.config.max_pages * self.jobs_per_page:
                 log.info(f"LinkedIn search page offset={start}")
                 query_params = {
                     "keywords": params.search_term,

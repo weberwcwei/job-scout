@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from job_scout.models import Compensation, CompInterval, Job, JobType, Location, ScrapeParams, Site
+from job_scout.models import Compensation, Job, JobType, Location, ScrapeParams, Site
 from job_scout.scrapers import BaseScraper
 from job_scout.scrapers.constants import INDEED_API_URL, INDEED_HEADERS, INDEED_SEARCH_QUERY
 from job_scout.util import html_to_text, is_remote, parse_compensation_interval
@@ -20,13 +20,15 @@ class IndeedScraper(BaseScraper):
         jobs: list[Job] = []
         cursor = None
         seen_urls: set[str] = set()
+        pages = 0
 
         with self._make_client() as client:
-            while len(jobs) < params.results_wanted:
+            while len(jobs) < params.results_wanted and pages < self.config.max_pages:
                 log.info(f"Indeed search page, {len(jobs)} jobs so far")
                 page_jobs, cursor = self._scrape_page(
                     client, params, cursor, seen_urls
                 )
+                pages += 1
                 if not page_jobs:
                     break
                 jobs.extend(page_jobs)
