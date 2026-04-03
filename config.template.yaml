@@ -1,5 +1,6 @@
-# job-scout configuration
-# Copy this file to config.yaml and fill in your values before running setup.sh
+# job-scout — full config reference (all options)
+# For quick start, run `job-scout init` which uses a minimal template.
+# To start from this file instead: job-scout init --full
 
 profile:
   name: "Your Name"

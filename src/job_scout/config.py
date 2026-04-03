@@ -109,9 +109,21 @@ DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "job-scout" / "job-scout.db
 def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> AppConfig:
     path = Path(path)
     if not path.exists():
-        raise FileNotFoundError(
+        raise SystemExit(
             f"Config not found at {path}. Run `job-scout init` first."
         )
     with open(path) as f:
         raw = yaml.safe_load(f)
-    return AppConfig(**raw)
+    try:
+        return AppConfig(**raw)
+    except Exception as e:
+        from pydantic import ValidationError
+
+        if isinstance(e, ValidationError):
+            lines = ["Invalid config.yaml:"]
+            for err in e.errors():
+                loc = " -> ".join(str(x) for x in err["loc"])
+                lines.append(f"  {loc}: {err['msg']}")
+            lines.append("\nRun `job-scout check` for details.")
+            raise SystemExit("\n".join(lines))
+        raise

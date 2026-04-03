@@ -11,7 +11,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from job_scout.config import DEFAULT_CONFIG_PATH, DEFAULT_DB_PATH, load_config
+import yaml
+from pydantic import ValidationError
+
+from job_scout.config import DEFAULT_CONFIG_PATH, DEFAULT_DB_PATH, CONFIG_DIR, AppConfig, load_config
 from job_scout.db import JobDB
 from job_scout.models import ScrapeParams, ScrapeRun, Site
 from job_scout.notify import Notifier
@@ -300,26 +303,117 @@ def schedule(
 
 
 @app.command()
-def init():
-    """First-time setup: create config and initialize DB."""
-    example = Path("config.example.yaml")
+def init(
+    full: bool = typer.Option(False, "--full", help="Use the full config template with all options"),
+):
+    """First-time setup: create config.yaml and initialize DB."""
     target = DEFAULT_CONFIG_PATH
 
     if target.exists():
-        console.print(f"[yellow]Config already exists at {target}[/yellow]")
-    elif example.exists():
-        shutil.copy(example, target)
-        console.print(f"[green]Created {target} from template.[/green]")
-        console.print("Edit config.yaml to customize your profile and search terms.")
-    else:
-        console.print("[red]config.example.yaml not found. Are you in the project directory?[/red]")
+        console.print(f"[yellow]config.yaml already exists at {target}[/yellow]")
+        console.print("To start fresh, delete it and run init again.")
+        console.print("Run [bold]job-scout check[/bold] to validate it.")
+        return
+
+    project_dir = Path(__file__).resolve().parent.parent.parent
+    template = project_dir / ("config.template.yaml" if full else "config.minimal.yaml")
+
+    if not template.exists():
+        console.print(f"[red]Template not found at {template}[/red]")
+        console.print("Are you in the job-scout project directory?")
         raise typer.Exit(1)
 
-    # Init DB
+    shutil.copy(template, target)
+    console.print(f"[green]Created {target}[/green]")
+
+    # Init DB directory + file
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     db = _get_db()
     db.close()
-    console.print(f"[green]Database initialized at {DEFAULT_DB_PATH}[/green]")
-    console.print("\nRun [bold]job-scout scrape --dry-run[/bold] to test.")
+
+    console.print()
+    console.print("[bold]Next steps:[/bold]")
+    console.print("  1. Edit [bold]config.yaml[/bold] — fill in the REQUIRED fields")
+    console.print("  2. Run  [bold]job-scout check[/bold] to validate your config")
+    console.print("  3. Run  [bold]job-scout scrape --dry-run[/bold] to test")
+    console.print("  4. Run  [bold]job-scout schedule --install[/bold] when ready")
+
+
+@app.command()
+def check():
+    """Validate config.yaml and test connections."""
+    target = DEFAULT_CONFIG_PATH
+    if not target.exists():
+        console.print("[red]No config.yaml found.[/red] Run [bold]job-scout init[/bold] first.")
+        raise typer.Exit(1)
+
+    # 1. Parse YAML
+    try:
+        with open(target) as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        console.print(f"[red]YAML syntax error:[/red] {e}")
+        raise typer.Exit(1)
+
+    if not raw:
+        console.print("[red]config.yaml is empty.[/red] Fill in the required fields.")
+        raise typer.Exit(1)
+
+    # 2. Validate with Pydantic
+    try:
+        cfg = AppConfig(**raw)
+    except ValidationError as e:
+        console.print("[red]Config errors:[/red]")
+        for err in e.errors():
+            field = " -> ".join(str(x) for x in err["loc"])
+            console.print(f"  [bold]{field}[/bold]: {err['msg']}")
+        raise typer.Exit(1)
+
+    # 3. Check for placeholder values
+    warnings = []
+    if not cfg.profile.name or cfg.profile.name in ("", "Your Name"):
+        warnings.append("profile.name is still a placeholder")
+    if not cfg.profile.target_title or cfg.profile.target_title in ("", "your target job title"):
+        warnings.append("profile.target_title is still a placeholder")
+    if not cfg.search.terms or cfg.search.terms == [""] or cfg.search.terms == [""]:
+        warnings.append("search.terms is empty")
+    if not cfg.search.locations or cfg.search.locations == [""]:
+        warnings.append("search.locations is empty")
+
+    if warnings:
+        console.print("[yellow]Warnings — these fields need real values:[/yellow]")
+        for w in warnings:
+            console.print(f"  {w}")
+        raise typer.Exit(1)
+
+    # 4. Print summary
+    console.print("[green]Config is valid.[/green]")
+    console.print(f"  Profile: {cfg.profile.name}")
+    console.print(f"  Target: {cfg.profile.target_title}")
+    console.print(f"  Search: {len(cfg.search.terms)} term(s), {len(cfg.search.locations)} location(s)")
+    console.print(f"  Sites: {', '.join(cfg.search.sites)}")
+    console.print(f"  Email alerts: {'enabled' if cfg.notifications.email.enabled else 'disabled'}")
+
+    # 5. Test SMTP if email is enabled
+    if cfg.notifications.email.enabled:
+        ecfg = cfg.notifications.email
+        if not ecfg.username or not ecfg.app_password:
+            console.print("[yellow]  Email enabled but credentials missing.[/yellow]")
+        else:
+            console.print("  Testing SMTP connection...", end="")
+            try:
+                import smtplib
+
+                smtp = smtplib.SMTP(ecfg.smtp_host, ecfg.smtp_port, timeout=10)
+                smtp.starttls()
+                smtp.login(ecfg.username, ecfg.app_password)
+                smtp.quit()
+                console.print(" [green]OK[/green]")
+            except Exception as e:
+                console.print(f" [red]FAILED[/red]: {e}")
+
+    console.print()
+    console.print("Next: [bold]job-scout scrape --dry-run[/bold]")
 
 
 @app.command()
