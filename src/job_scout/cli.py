@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -41,7 +42,7 @@ def _get_db():
 
 @app.command()
 def scrape(
-    site: str = typer.Option(None, help="Scrape specific site: linkedin, indeed, google"),
+    site: str = typer.Option(None, help="Scrape specific site: linkedin, indeed, google, glassdoor, ziprecruiter, bayt"),
     term: str = typer.Option(None, help="Override search term"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Scrape and score but don't persist"),
 ):
@@ -59,64 +60,82 @@ def scrape(
     total_found = 0
     total_new = 0
 
-    for site_name in sites:
-        scraper = get_scraper(site_name, cfg.scraping)
-        for search_term in terms:
-            for location in locations:
-                run = ScrapeRun(
-                    site=Site(site_name),
-                    search_term=search_term,
-                    location=location,
-                )
-                run_id = db.record_run(run) if db else None
+    # Build task list for concurrent execution
+    tasks = [
+        (site_name, search_term, loc)
+        for site_name in sites
+        for search_term in terms
+        for loc in locations
+    ]
 
-                console.print(
-                    f"[dim]Scraping {site_name}: \"{search_term}\" in {location}...[/dim]"
-                )
+    def _run_one(task):
+        s_name, s_term, s_loc = task
+        scraper = get_scraper(s_name, cfg.scraping)
+        params = ScrapeParams(
+            search_term=s_term,
+            location=s_loc,
+            results_wanted=cfg.search.results_per_site,
+            hours_old=cfg.search.hours_old,
+            distance_miles=cfg.search.distance_miles,
+        )
+        try:
+            jobs = scraper.scrape(params)
+        except Exception as e:
+            return s_name, s_term, s_loc, [], str(e)
+        # Score in worker thread (CPU-bound but fast)
+        for job in jobs:
+            score, breakdown = scorer.score(job)
+            job.score = score
+            job.score_breakdown = breakdown
+        return s_name, s_term, s_loc, jobs, None
 
-                try:
-                    params = ScrapeParams(
-                        search_term=search_term,
-                        location=location,
-                        results_wanted=cfg.search.results_per_site,
-                        hours_old=cfg.search.hours_old,
-                        distance_miles=cfg.search.distance_miles,
-                    )
-                    jobs = scraper.scrape(params)
-                except Exception as e:
-                    console.print(f"[red]Error scraping {site_name}: {e}[/red]")
-                    if db and run_id:
-                        db.finish_run(run_id, 0, 0, str(e))
-                    continue
+    max_workers = min(cfg.scraping.max_workers, len(tasks)) if tasks else 1
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_run_one, task): task for task in tasks}
+        for future in as_completed(futures):
+            site_name, search_term, location, jobs, error = future.result()
 
-                page_new = 0
-                for job in jobs:
-                    score, breakdown = scorer.score(job)
-                    job.score = score
-                    job.score_breakdown = breakdown
+            run = ScrapeRun(
+                site=Site(site_name),
+                search_term=search_term,
+                location=location,
+            )
+            run_id = db.record_run(run) if db else None
 
-                    if score == 0:
-                        continue  # Dealbreaker
-
-                    total_found += 1
-
-                    if db:
-                        is_new, _ = db.upsert_job(job)
-                        if is_new:
-                            page_new += 1
-                            total_new += 1
-                            loc = job.location
-                            allowed = cfg.scoring.alert_states
-                            in_area = loc.is_remote or not allowed or loc.state in (None, *allowed)
-                            if score >= cfg.scoring.min_alert_score and in_area:
-                                new_high_score.append(job)
-                    elif dry_run and score >= cfg.scoring.min_display_score:
-                        console.print(
-                            f"  [green]{score}[/green] | {job.company}: {job.title} | {job.location.display}"
-                        )
-
+            if error:
+                console.print(f"[red]Error scraping {site_name}: {error}[/red]")
                 if db and run_id:
-                    db.finish_run(run_id, len(jobs), page_new)
+                    db.finish_run(run_id, 0, 0, error)
+                continue
+
+            console.print(
+                f"[dim]Scraped {site_name}: \"{search_term}\" in {location} — {len(jobs)} jobs[/dim]"
+            )
+
+            page_new = 0
+            for job in jobs:
+                if job.score == 0:
+                    continue  # Dealbreaker
+
+                total_found += 1
+
+                if db:
+                    is_new, _ = db.upsert_job(job)
+                    if is_new:
+                        page_new += 1
+                        total_new += 1
+                        loc = job.location
+                        allowed = cfg.scoring.alert_states
+                        in_area = loc.is_remote or not allowed or loc.state in (None, *allowed)
+                        if job.score >= cfg.scoring.min_alert_score and in_area:
+                            new_high_score.append(job)
+                elif dry_run and job.score >= cfg.scoring.min_display_score:
+                    console.print(
+                        f"  [green]{job.score}[/green] | {job.company}: {job.title} | {job.location.display}"
+                    )
+
+            if db and run_id:
+                db.finish_run(run_id, len(jobs), page_new)
 
     console.print(f"\n[bold]Done.[/bold] Found {total_found} jobs, {total_new} new.")
 
@@ -204,7 +223,7 @@ def view(job_id: int = typer.Argument(..., help="Job ID to view")):
     console.print(f"Status: {job.status}")
     console.print(f"URL: {job.url}")
     if job.description:
-        console.print(f"\n[dim]--- Description (first 500 chars) ---[/dim]")
+        console.print("\n[dim]--- Description (first 500 chars) ---[/dim]")
         console.print(job.description[:500])
 
 
