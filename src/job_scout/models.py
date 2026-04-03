@@ -6,7 +6,7 @@ import hashlib
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class Site(str, Enum):
@@ -71,6 +71,9 @@ class Location(BaseModel):
 class Job(BaseModel):
     """Core job posting model used across all scrapers."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int | None = None
     source: Site
     source_id: str
     url: str

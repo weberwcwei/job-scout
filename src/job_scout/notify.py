@@ -68,8 +68,9 @@ class Notifier:
         for job in jobs[:10]:
             salary = job.compensation.display if job.compensation else "No salary"
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            id_tag = f"#{job.id} " if job.id else ""
             lines.append(
-                f"[{job.score}] (kw:{kw}) {job.company}: {job.title}\n"
+                f"[{job.score}] (kw:{kw}) {id_tag}{job.company}: {job.title}\n"
                 f"  {job.location.display} | {salary}\n"
                 f"  {job.url}\n"
             )
@@ -92,8 +93,9 @@ class Notifier:
         for job in jobs[:10]:
             salary = job.compensation.display if job.compensation else "No salary"
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            id_tag = f"\\#{job.id} " if job.id else ""
             lines.append(
-                f"*{job.score}* \\(kw:{kw}\\) \\| [{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
+                f"*{job.score}* \\(kw:{kw}\\) \\| {id_tag}[{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
                 f"  {_esc_md(job.location.display)} \\| {_esc_md(salary)}"
             )
         text = "\n".join(lines)

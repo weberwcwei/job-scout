@@ -124,7 +124,8 @@ def scrape(
                 total_found += 1
 
                 if db:
-                    is_new, _ = db.upsert_job(job)
+                    is_new, job_id = db.upsert_job(job)
+                    job.id = job_id
                     if is_new:
                         page_new += 1
                         total_new += 1
@@ -172,7 +173,7 @@ def list_jobs(
         return
 
     table = Table(show_header=True, header_style="bold")
-    table.add_column("#", style="dim", width=4)
+    table.add_column("ID", style="dim", width=5)
     table.add_column("Score", width=5)
     table.add_column("Company", width=14)
     table.add_column("Title", width=32)
@@ -189,7 +190,7 @@ def list_jobs(
             posted = f"{days}d" if days > 0 else "today"
 
         table.add_row(
-            str(i),
+            str(job.id or i),
             f"[{score_style}]{job.score}[/{score_style}]",
             job.company[:14],
             job.title[:32],
@@ -492,8 +493,9 @@ def digest():
         lines = [f"job-scout digest — {len(recent)} match(es) in the last 24h\n"]
         for job in recent[:10]:
             salary = job.compensation.display if job.compensation else "No salary"
+            id_tag = f"#{job.id} " if job.id else ""
             lines.append(
-                f"[{job.score}] {job.company}: {job.title}\n"
+                f"[{job.score}] {id_tag}{job.company}: {job.title}\n"
                 f"  {job.location.display} | {salary}\n"
                 f"  {job.url}\n"
             )
@@ -512,8 +514,9 @@ def digest():
         for job in recent[:10]:
             salary = job.compensation.display if job.compensation else "No salary"
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            id_tag = f"\\#{job.id} " if job.id else ""
             tg_lines.append(
-                f"*{job.score}* \\(kw:{kw}\\) \\| [{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
+                f"*{job.score}* \\(kw:{kw}\\) \\| {id_tag}[{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
                 f"  {_esc_md(job.location.display)} \\| {_esc_md(salary)}"
             )
         if send_telegram(

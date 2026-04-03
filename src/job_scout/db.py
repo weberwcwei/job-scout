@@ -264,6 +264,7 @@ class JobDB:
             )
 
         return Job(
+            id=row["id"],
             source=Site(row["source"]),
             source_id=row["source_id"],
             url=row["url"],
