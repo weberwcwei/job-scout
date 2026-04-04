@@ -2,9 +2,31 @@
   <img src="assets/banner.png" alt="job-scout" width="600">
 </p>
 
-# job-scout
+<p align="center">
+  <strong>Stop refreshing job boards. Let your Mac do the searching.</strong>
+</p>
 
-Get job alerts on your phone — automatically. job-scout scrapes LinkedIn, Indeed, Google Jobs, and more every 6 hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram or email. Free, no API keys, runs on your Mac.
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white" alt="Python 3.12+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple" alt="macOS">
+  <img src="https://img.shields.io/badge/no_API_keys-required-brightgreen" alt="No API keys required">
+</p>
+
+<p align="center">
+  <sub>Scrapes <b>LinkedIn</b> · <b>Indeed</b> · <b>Google Jobs</b> · <b>Glassdoor</b> · <b>ZipRecruiter</b> · <b>Bayt</b></sub>
+</p>
+
+---
+
+job-scout scrapes 6 job boards every few hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram or email. Free, no API keys, runs on your Mac.
+
+### Why job-scout?
+
+- **You miss new posts** — Job boards bury good matches under promoted listings. job-scout checks every 6 hours so you see them first.
+- **You waste time scrolling** — Instead of checking 6 sites manually, get one alert with only jobs that match your skills.
+- **You can't compare across sites** — job-scout ranks every job on one 0–100 scale so the best match wins, regardless of where it was posted.
+- **You lose track of applications** — Every job gets an ID. Mark it applied, add notes, check your stats.
 
 ## What You'll Get
 
@@ -44,6 +66,21 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
+After setup, either activate the virtual environment first:
+
+```bash
+source .venv/bin/activate
+job-scout check
+```
+
+Or run commands directly without activating:
+
+```bash
+.venv/bin/job-scout check
+```
+
+All examples below use `job-scout` and assume the venv is activated.
+
 ### Step 2: Generate your config
 
 Copy the prompt below and paste it into [ChatGPT](https://chat.openai.com) or any AI chatbot, along with your resume (paste the text or upload the PDF). Save the output as `config.yaml` in the project folder.
@@ -53,90 +90,82 @@ Copy the prompt below and paste it into [ChatGPT](https://chat.openai.com) or an
 
 ```
 I need you to generate a job-scout config.yaml file based on my resume.
-Read my resume below, then fill in the config template that follows.
+Read my resume below, then produce a config that EXACTLY matches the structure and
+format specified. The app will crash on any deviation. Follow every rule precisely.
 
-Rules:
-- Extract my name and target job title from the resume
-- Map my skills into keyword tiers:
-  - critical: my top 3-5 core technical skills (the ones in every job I'd want)
-  - strong: important skills I use regularly
-  - moderate: skills I have but aren't central to my identity
-  - weak: general/soft skills or tools I've used occasionally
-- For target_companies: suggest companies that match my experience level and industry
-  - tier1: 3-5 dream companies
-  - tier2: 3-5 great companies
-  - tier3: 3-5 good companies
-- For dealbreakers: add title patterns that don't match my level (e.g. "intern" if I'm senior)
-- For title_signals: add job title phrases that closely match what I want, with higher points for closer matches
-- For search.terms: generate 2-4 job title search queries based on my experience
-- For search.locations: ask me where I want to work if not obvious from resume
-- Leave the notifications section commented out (I'll fill in secrets myself)
-- Output ONLY the valid YAML, no explanation
+STRICT FORMAT RULES (the app validates all of these — violations cause errors):
 
-Here is the config template:
+1. REQUIRED TOP-LEVEL SECTIONS (in this exact order):
+   profile, search, scoring, schedule
+   Do NOT include: scraping, notifications, or db_path sections.
 
-profile:
-  name: ""
-  target_title: ""
+2. profile.name — my full name as a quoted string
+3. profile.target_title — a single job title string (e.g. "Senior ML Engineer")
 
-  keywords:
-    critical: []
-    strong: []
-    moderate: []
-    weak: []
+4. profile.keywords — four tiers, each a YAML list of plain lowercase strings:
+   - critical: 8-15 keywords — my core technical identity (skills in every job I'd want)
+   - strong: 10-20 keywords — important skills I use regularly, frameworks, specific tools
+   - moderate: 8-15 keywords — skills I have but aren't central to my identity
+   - weak: 4-8 keywords — general terms, broad categories, tools I've used occasionally
 
-  target_companies:
-    tier1: []
-    tier2: []
-    tier3: []
+5. profile.target_companies — three tiers, each a YAML list of company name strings:
+   - tier1: 10-25 dream companies in my field
+   - tier2: 10-20 great companies
+   - tier3: 5-10 good companies
 
-  dealbreakers:
-    title_patterns: []
-    company_patterns: []
-    description_patterns: []
+6. profile.dealbreakers — three categories, each a YAML list of REGEX PATTERN strings.
+   Every pattern MUST:
+   - Start with (?i) for case-insensitive matching
+   - Use \b for word boundaries where appropriate
+   - Be a valid Python regex
+   Required patterns:
+   - title_patterns: regex for seniority levels that don't match me
+     Example: "(?i)\\bintern\\b"
+   - company_patterns: regex for companies to exclude (staffing firms, etc.)
+     Example: "(?i)\\bInfosys\\b"
+   - description_patterns: MUST include these exact patterns:
+     - "(?i)no\\s+(h[- ]?1b|visa|sponsorship)"
+     - "(?i)must\\s+be\\s+(us|u\\.s\\.)\\s+citizen"
+     - "(?i)security\\s+clearance\\s+required"
+     - "(?i)\\bc2c\\b"
+     - "(?i)\\bcorp.to.corp\\b"
+     Add more if relevant to my profile.
 
-  target_levels: []
+7. profile.target_levels — YAML list from ONLY these values:
+   "Entry", "Junior", "Mid", "Senior", "Lead"
+   Pick levels that match my experience.
 
-  title_signals: []
-    # example:
-    # - pattern: "machine learning engineer"
-    #   points: 12
+8. profile.title_signals — a YAML list of objects, each with exactly two keys:
+   - pattern: a lowercase string (job title phrase)
+   - points: an integer from 1 to 12 (higher = closer match to what I want)
+   Generate 8-15 signals. Exact format per item:
+     - pattern: "machine learning engineer"
+       points: 10
 
-search:
-  terms: []
-  locations: []
-  sites:
+9. search.terms — 5-10 quoted job title search strings
+10. search.locations — list of location strings (ask me if not obvious from resume)
+11. search.sites MUST be exactly:
     - linkedin
     - indeed
     - google
     - glassdoor
     - ziprecruiter
-  results_per_site: 25
-  hours_old: 72
-  distance_miles: 50
+12. search.results_per_site: 25
+13. search.hours_old: 72
+14. search.distance_miles: 50
 
-scoring:
-  min_alert_score: 45
-  min_display_score: 20
+15. scoring.min_alert_score: 45
+16. scoring.min_display_score: 20
 
-# Uncomment and fill in to enable notifications:
-# notifications:
-#   email:
-#     enabled: true
-#     smtp_host: smtp.gmail.com
-#     smtp_port: 587
-#     username: you@gmail.com
-#     app_password: xxxx-xxxx-xxxx-xxxx
-#     to_address: you@gmail.com
-#   telegram:
-#     enabled: true
-#     bot_token: ""
-#     chat_id: ""
+17. schedule.interval_hours: 6
+18. schedule.start_hour: 8
+19. schedule.end_hour: 23
 
-schedule:
-  interval_hours: 6
-  start_hour: 8
-  end_hour: 23
+OUTPUT REQUIREMENTS:
+- Output ONLY valid YAML. No explanation, no markdown fences, no comments.
+- Use 2-space indentation throughout.
+- All string values containing special characters must be quoted.
+- Do NOT include notifications, scraping, or db_path sections.
 
 Now here is my resume:
 [PASTE YOUR RESUME HERE]
@@ -154,7 +183,7 @@ Now here is my resume:
 **Email** (Gmail):
 1. Go to [Google App Passwords](https://myaccount.google.com/apppasswords) (requires 2-Step Verification)
 2. Create a new app password named "job-scout"
-3. Uncomment the `notifications.email` section in `config.yaml` and paste the 16-character password
+3. Uncomment the `notifications.email` section in `config.yaml` and paste the password **without dashes** (Google shows `xxxx-xxxx-xxxx-xxxx`, enter it as `xxxxxxxxxxxxxxxx`)
 
 ### Step 4: Run it
 
@@ -175,6 +204,17 @@ job-scout apply 42             # mark a job as applied
 job-scout stats                # see your numbers
 job-scout digest               # send today's top matches now
 ```
+
+## Your Daily Routine
+
+Once scheduled, job-scout runs silently in the background. Your day looks like this:
+
+1. **Morning** — Check Telegram. See 3 new matches scored 70+.
+2. **Spot a good one** — Run `job-scout view 142` for full details.
+3. **Apply on the site** — Then `job-scout apply 142` to log it.
+4. **End of week** — Run `job-scout stats` to see how your search is going.
+
+No browser tabs. No doom-scrolling. Just the jobs that match your profile, delivered to your phone.
 
 ## Turn It Off
 
