@@ -31,7 +31,6 @@ def generate_plist(
         "Label": LABEL,
         "ProgramArguments": [python_path, "-m", "job_scout", "scrape"],
         "StartInterval": schedule.interval_hours * 3600,
-        "WorkingDirectory": str(project_dir),
         "StandardOutPath": str(LOG_DIR / "stdout.log"),
         "StandardErrorPath": str(LOG_DIR / "stderr.log"),
         "RunAtLoad": True,
