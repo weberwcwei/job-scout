@@ -224,6 +224,9 @@ test_config*.yaml
 *.db
 docs/
 
+# Worktrees
+.worktrees/
+
 # AI assistant instructions
 CLAUDE.md
 .claude/
