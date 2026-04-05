@@ -15,7 +15,7 @@ from rich.table import Table
 import yaml
 from pydantic import ValidationError
 
-from job_scout.config import DEFAULT_CONFIG_PATH, DEFAULT_DB_PATH, CONFIG_DIR, AppConfig, load_config
+from job_scout.config import DEFAULT_DB_PATH, CONFIG_DIR, XDG_CONFIG_PATH, AppConfig, load_config, resolve_config_path
 from job_scout.db import JobDB
 from job_scout.models import ScrapeParams, ScrapeRun, Site
 from job_scout.notify import Notifier
@@ -33,7 +33,7 @@ logging.basicConfig(
 
 
 def _get_config():
-    return load_config(DEFAULT_CONFIG_PATH)
+    return load_config(resolve_config_path())
 
 
 def _get_db(cfg: AppConfig | None = None):
@@ -335,7 +335,7 @@ def init(
     full: bool = typer.Option(False, "--full", help="Use the full config template with all options"),
 ):
     """First-time setup: create config.yaml and initialize DB."""
-    target = DEFAULT_CONFIG_PATH
+    target = XDG_CONFIG_PATH
 
     if target.exists():
         console.print(f"[yellow]config.yaml already exists at {target}[/yellow]")
@@ -343,16 +343,25 @@ def init(
         console.print("Run [bold]job-scout check[/bold] to validate it.")
         return
 
-    project_dir = Path(__file__).resolve().parent.parent.parent
-    template = project_dir / ("config.template.yaml" if full else "config.minimal.yaml")
+    # Also check CWD for existing config to migrate
+    cwd_config = Path("config.yaml")
+    if cwd_config.exists():
+        console.print("[yellow]Found existing config.yaml in current directory.[/yellow]")
+        console.print(f"Moving to {target}...")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(cwd_config), str(target))
+        console.print(f"[green]Moved to {target}[/green]")
+    else:
+        project_dir = Path(__file__).resolve().parent.parent.parent
+        template = project_dir / ("config.template.yaml" if full else "config.minimal.yaml")
 
-    if not template.exists():
-        console.print(f"[red]Template not found at {template}[/red]")
-        console.print("Are you in the job-scout project directory?")
-        raise typer.Exit(1)
+        if not template.exists():
+            console.print(f"[red]Template not found at {template}[/red]")
+            raise typer.Exit(1)
 
-    shutil.copy(template, target)
-    console.print(f"[green]Created {target}[/green]")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(template, target)
+        console.print(f"[green]Created {target}[/green]")
 
     # Init DB directory + file
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -361,7 +370,7 @@ def init(
 
     console.print()
     console.print("[bold]Next steps:[/bold]")
-    console.print("  1. Edit [bold]config.yaml[/bold] — fill in the REQUIRED fields")
+    console.print(f"  1. Edit [bold]{target}[/bold] — fill in the REQUIRED fields")
     console.print("  2. Run  [bold]job-scout check[/bold] to validate your config")
     console.print("  3. Run  [bold]job-scout scrape --dry-run[/bold] to test")
     console.print("  4. Run  [bold]job-scout schedule --install[/bold] when ready")
@@ -370,7 +379,7 @@ def init(
 @app.command()
 def check():
     """Validate config.yaml and test connections."""
-    target = DEFAULT_CONFIG_PATH
+    target = resolve_config_path()
     if not target.exists():
         console.print("[red]No config.yaml found.[/red] Run [bold]job-scout init[/bold] first.")
         raise typer.Exit(1)
