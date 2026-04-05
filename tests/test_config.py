@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
-from job_scout.config import AppConfig, ScrapingConfig, SearchConfig, TelegramConfig
+from job_scout.config import AppConfig, ScrapingConfig, SearchConfig, TelegramConfig, resolve_config_path, XDG_CONFIG_PATH
 
 
 class TestScrapingConfigDefaults:
@@ -102,6 +103,47 @@ class TestTelegramConfig:
         assert cfg.notifications.telegram.enabled is True
         assert cfg.notifications.telegram.bot_token == "123:ABC"
         assert cfg.notifications.telegram.chat_id == "42"
+
+
+class TestResolveConfigPath:
+    def test_returns_xdg_path_when_it_exists(self, tmp_path):
+        xdg = tmp_path / "config.yaml"
+        xdg.touch()
+        with patch("job_scout.config.XDG_CONFIG_PATH", xdg):
+            assert resolve_config_path() == xdg
+
+    def test_falls_back_to_cwd_when_xdg_missing(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "config.yaml").touch()
+        missing = tmp_path / "nonexistent" / "config.yaml"
+        with patch("job_scout.config.XDG_CONFIG_PATH", missing):
+            assert resolve_config_path() == Path("config.yaml")
+
+    def test_returns_xdg_path_when_neither_exists(self, tmp_path):
+        missing = tmp_path / "nonexistent" / "config.yaml"
+        with patch("job_scout.config.XDG_CONFIG_PATH", missing):
+            assert resolve_config_path() == missing
+
+    def test_xdg_takes_precedence_over_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "config.yaml").touch()
+        xdg = tmp_path / "xdg" / "config.yaml"
+        xdg.parent.mkdir()
+        xdg.touch()
+        with patch("job_scout.config.XDG_CONFIG_PATH", xdg):
+            assert resolve_config_path() == xdg
+
+    def test_xdg_config_home_env_respected(self, tmp_path, monkeypatch):
+        """XDG_CONFIG_DIR should use XDG_CONFIG_HOME when set."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        # Re-import to pick up env change
+        import importlib
+        import job_scout.config as cfg_mod
+        importlib.reload(cfg_mod)
+        assert cfg_mod.XDG_CONFIG_DIR == tmp_path / "job-scout"
+        # Clean up: reload again without the env var to restore
+        monkeypatch.delenv("XDG_CONFIG_HOME")
+        importlib.reload(cfg_mod)
 
 
 class TestDbPath:

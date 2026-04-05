@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -122,8 +123,19 @@ class AppConfig(BaseModel):
 
 
 CONFIG_DIR = Path.home() / ".local" / "share" / "job-scout"
+XDG_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "job-scout"
+XDG_CONFIG_PATH = XDG_CONFIG_DIR / "config.yaml"
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "job-scout" / "job-scout.db"
+
+
+def resolve_config_path() -> Path:
+    """Return config path: XDG location first, CWD fallback for backwards compat."""
+    if XDG_CONFIG_PATH.exists():
+        return XDG_CONFIG_PATH
+    if DEFAULT_CONFIG_PATH.exists():
+        return DEFAULT_CONFIG_PATH
+    return XDG_CONFIG_PATH
 
 
 def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> AppConfig:
