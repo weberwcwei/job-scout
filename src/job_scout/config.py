@@ -138,8 +138,8 @@ def resolve_config_path() -> Path:
     return XDG_CONFIG_PATH
 
 
-def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> AppConfig:
-    path = Path(path)
+def load_config(path: Path | str | None = None) -> AppConfig:
+    path = Path(path) if path else resolve_config_path()
     if not path.exists():
         raise SystemExit(
             f"Config not found at {path}. Run `job-scout init` first."
