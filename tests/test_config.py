@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from job_scout.config import AppConfig, ScrapingConfig, SearchConfig, TelegramConfig, resolve_config_path, XDG_CONFIG_PATH
+from job_scout.config import AppConfig, ScrapingConfig, SearchConfig, TelegramConfig, resolve_config_path
 
 
 class TestScrapingConfigDefaults:
