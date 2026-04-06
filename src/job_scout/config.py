@@ -116,8 +116,10 @@ class NotificationsConfig(BaseModel):
 
 class ScheduleConfig(BaseModel):
     interval_hours: int = 6
-    start_hour: int = 8
-    end_hour: int = 23
+    digest_hour: int = 9
+    digest_minute: int = 0
+    report_hour: int = 8
+    report_minute: int = 50
 
 
 class AppConfig(BaseModel):
@@ -128,6 +130,7 @@ class AppConfig(BaseModel):
     notifications: NotificationsConfig = NotificationsConfig()
     schedule: ScheduleConfig = ScheduleConfig()
     db_path: Path | None = None
+    report_dir: Path = Path.home() / ".local" / "share" / "job-scout" / "reports"
 
 
 CONFIG_DIR = Path.home() / ".local" / "share" / "job-scout"

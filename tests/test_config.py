@@ -148,6 +148,65 @@ class TestResolveConfigPath:
         importlib.reload(cfg_mod)
 
 
+class TestScheduleConfigFields:
+    def test_defaults(self):
+        """New schedule fields have correct defaults."""
+        from job_scout.config import ScheduleConfig
+        s = ScheduleConfig()
+        assert s.interval_hours == 6
+        assert s.digest_hour == 9
+        assert s.digest_minute == 0
+        assert s.report_hour == 8
+        assert s.report_minute == 50
+
+    def test_custom_values(self):
+        """Custom schedule values parse correctly."""
+        from job_scout.config import ScheduleConfig
+        s = ScheduleConfig(interval_hours=4, digest_hour=10, digest_minute=30, report_hour=7, report_minute=0)
+        assert s.digest_hour == 10
+        assert s.digest_minute == 30
+        assert s.report_hour == 7
+
+    def test_start_hour_end_hour_removed(self):
+        """start_hour and end_hour no longer exist as fields."""
+        from job_scout.config import ScheduleConfig
+        s = ScheduleConfig()
+        assert not hasattr(s, 'start_hour')
+        assert not hasattr(s, 'end_hour')
+
+    def test_extra_fields_ignored(self):
+        """Existing configs with start_hour/end_hour don't break (Pydantic ignores extras)."""
+        from job_scout.config import ScheduleConfig
+        # This simulates an old config.yaml that still has start_hour/end_hour
+        s = ScheduleConfig(interval_hours=6, start_hour=8, end_hour=23)
+        assert s.interval_hours == 6
+
+
+class TestAppConfigReportDir:
+    def test_default_report_dir(self):
+        """AppConfig has report_dir with correct default."""
+        from pathlib import Path
+        from job_scout.config import AppConfig
+        # Need minimal valid config
+        cfg = AppConfig(
+            profile={"name": "Test", "target_title": "SWE", "keywords": {}, "target_companies": {}},
+            search={"terms": ["python"], "locations": ["Remote"]},
+        )
+        expected = Path.home() / ".local" / "share" / "job-scout" / "reports"
+        assert cfg.report_dir == expected
+
+    def test_custom_report_dir(self):
+        """report_dir can be overridden."""
+        from pathlib import Path
+        from job_scout.config import AppConfig
+        cfg = AppConfig(
+            profile={"name": "Test", "target_title": "SWE", "keywords": {}, "target_companies": {}},
+            search={"terms": ["python"], "locations": ["Remote"]},
+            report_dir="/tmp/my-reports",
+        )
+        assert cfg.report_dir == Path("/tmp/my-reports")
+
+
 class TestDbPath:
     def test_db_path_none_by_default(self):
         raw = {
