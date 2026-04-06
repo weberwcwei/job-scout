@@ -761,39 +761,42 @@ def rescore(
 def digest():
     """Send daily digest of top job matches via email and/or Telegram."""
     from datetime import timedelta
+    from job_scout.notify import send_email, send_telegram, _esc_md
 
     cfg = _get_config()
     db = _get_db(cfg)
 
-    # Get jobs from last 24h with score >= min_alert_score
     cutoff = datetime.now() - timedelta(hours=24)
-    jobs = db.get_jobs(min_score=cfg.scoring.min_alert_score, limit=50)
+    jobs = db.get_jobs(status="new", min_score=cfg.scoring.min_alert_score, since=cutoff, limit=None)
+    jobs = _filter_alert_jobs(jobs, cfg)
+    stats = db.get_alert_stats(score_threshold=cfg.scoring.min_alert_score)
     db.close()
 
-    # Filter to recent ones
-    recent = [j for j in jobs if j.date_scraped and j.date_scraped >= cutoff]
-
-    if not recent:
+    if not jobs:
         console.print("[dim]No new matches in the last 24h.[/dim]")
         return
 
+    display_jobs = jobs[:10]
     sent_any = False
 
     # Email digest
     if cfg.notifications.email.enabled:
-        lines = [f"job-scout digest — {len(recent)} match(es) in the last 24h\n"]
-        for job in recent[:10]:
-            salary = job.compensation.display if job.compensation else "No salary"
+        lines = [f"job-scout digest — {len(jobs)} match(es) in the last 24h\n"]
+        for job in display_jobs:
+            salary = job.compensation.display_concise if job.compensation else ""
+            kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
             id_tag = f"#{job.id} " if job.id else ""
+            loc_line = f"  {job.location.display}"
+            if salary:
+                loc_line += f" | {salary}"
             lines.append(
-                f"[{job.score}] {id_tag}{job.company}: {job.title}\n"
-                f"  {job.location.display} | {salary}\n"
+                f"[{job.score}] (kw:{kw}) {id_tag}{job.company}: {job.title}\n"
+                f"{loc_line}\n"
                 f"  {job.url}\n"
             )
-        from job_scout.notify import send_email
-
+        lines.append(f"\n\U0001f4ca {stats['total_new']} unreviewed | {stats['scraped_24h']} scraped today")
         if send_email(
-            subject=f"job-scout digest: {len(recent)} match(es)",
+            subject=f"job-scout digest: {len(jobs)} match(es)",
             body="\n".join(lines),
             cfg=cfg.notifications.email,
         ):
@@ -801,17 +804,19 @@ def digest():
 
     # Telegram digest
     if cfg.notifications.telegram.enabled:
-        from job_scout.notify import send_telegram, _esc_md
-
-        tg_lines = [f"*job\\-scout digest* — {len(recent)} match\\(es\\)\n"]
-        for job in recent[:10]:
-            salary = job.compensation.display if job.compensation else "No salary"
+        tg_lines = [f"*job\\-scout digest* — {len(jobs)} match\\(es\\)\n"]
+        for job in display_jobs:
+            salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
             id_tag = f"\\#{job.id} " if job.id else ""
+            loc_line = f"  {_esc_md(job.location.display)}"
+            if salary:
+                loc_line += f" \\| {_esc_md(salary)}"
             tg_lines.append(
                 f"*{job.score}* \\(kw:{kw}\\) \\| {id_tag}[{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
-                f"  {_esc_md(job.location.display)} \\| {_esc_md(salary)}"
+                f"{loc_line}"
             )
+        tg_lines.append(f"\n\U0001f4ca {_esc_md(str(stats['total_new']))} unreviewed \\| {_esc_md(str(stats['scraped_24h']))} scraped today")
         if send_telegram(
             text="\n".join(tg_lines),
             cfg=cfg.notifications.telegram,
@@ -819,7 +824,7 @@ def digest():
             sent_any = True
 
     if sent_any:
-        console.print(f"[green]Digest sent — {len(recent)} matches.[/green]")
+        console.print(f"[green]Digest sent — {len(jobs)} matches.[/green]")
     else:
         console.print("[red]Failed to send digest. Check notification config.[/red]")
 
