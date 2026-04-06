@@ -15,7 +15,7 @@ from rich.table import Table
 import yaml
 from pydantic import ValidationError
 
-from job_scout.config import DEFAULT_DB_PATH, CONFIG_DIR, XDG_CONFIG_PATH, AppConfig, load_config, resolve_config_path
+from job_scout.config import DEFAULT_DB_PATH, CONFIG_DIR, XDG_CONFIG_PATH, AppConfig, load_config, resolve_config_path, validate_quality
 from job_scout.db import JobDB
 from job_scout.models import ScrapeParams, ScrapeRun, Site
 from job_scout.notify import Notifier
@@ -406,22 +406,10 @@ def check():
             console.print(f"  [bold]{field}[/bold]: {err['msg']}")
         raise typer.Exit(1)
 
-    # 3. Check for placeholder values
-    warnings = []
-    if not cfg.profile.name or cfg.profile.name in ("", "Your Name"):
-        warnings.append("profile.name is still a placeholder")
-    if not cfg.profile.target_title or cfg.profile.target_title in ("", "your target job title"):
-        warnings.append("profile.target_title is still a placeholder")
-    if not cfg.search.terms or cfg.search.terms == [""] or cfg.search.terms == [""]:
-        warnings.append("search.terms is empty")
-    if not cfg.search.locations or cfg.search.locations == [""]:
-        warnings.append("search.locations is empty")
-
-    if warnings:
-        console.print("[yellow]Warnings — these fields need real values:[/yellow]")
-        for w in warnings:
-            console.print(f"  {w}")
-        raise typer.Exit(1)
+    # 3. Quality diagnostics
+    diags = validate_quality(cfg)
+    warnings = [d for d in diags if d.level == "warning"]
+    errors = [d for d in diags if d.level == "error"]
 
     # 4. Print summary
     console.print("[green]Config is valid.[/green]")
@@ -432,7 +420,22 @@ def check():
     console.print(f"  Email alerts: {'enabled' if cfg.notifications.email.enabled else 'disabled'}")
     console.print(f"  Telegram alerts: {'enabled' if cfg.notifications.telegram.enabled else 'disabled'}")
 
-    # 5. Test SMTP if email is enabled
+    # 5. Render diagnostics (warnings first, errors last)
+    if warnings:
+        console.print("\n[yellow]Quality warnings:[/yellow]")
+        for d in warnings:
+            console.print(f"  {d.field}: {d.message}")
+
+    if errors:
+        console.print("\n[red]Config errors:[/red]")
+        for d in errors:
+            console.print(f"  {d.field}: {d.message}")
+
+    # 6. Test connections (skip if errors present)
+    if errors:
+        raise typer.Exit(1)
+
+    # 7. Test SMTP if email is enabled
     if cfg.notifications.email.enabled:
         ecfg = cfg.notifications.email
         if not ecfg.username or not ecfg.app_password:
@@ -474,6 +477,9 @@ def check():
 
     console.print()
     console.print("Next: [bold]job-scout scrape --dry-run[/bold]")
+
+    if warnings:
+        raise typer.Exit(2)
 
 
 @app.command()
