@@ -461,18 +461,26 @@ def schedule(
 
     if install_flag:
         cfg = _get_config()
-        path = scheduler.install(cfg.schedule, Path.cwd())
-        console.print(f"[green]Installed schedule at {path}[/green]")
-        console.print(f"Will run every {cfg.schedule.interval_hours} hours.")
+        paths = scheduler.install(cfg.schedule, Path.cwd())
+        console.print("[green]Installed schedules:[/green]")
+        for path in paths:
+            console.print(f"  {path}")
+        console.print(f"\nScrape: every {cfg.schedule.interval_hours} hours")
+        console.print(f"Digest: daily at {cfg.schedule.digest_hour:02d}:{cfg.schedule.digest_minute:02d}")
+        console.print(f"Report: daily at {cfg.schedule.report_hour:02d}:{cfg.schedule.report_minute:02d}")
     elif uninstall_flag:
         scheduler.uninstall()
-        console.print("[dim]Schedule removed.[/dim]")
+        console.print("[dim]All schedules removed.[/dim]")
     else:
         s = scheduler.status()
-        console.print(f"Installed: {s['installed']}")
-        console.print(f"Running: {s['running']}")
-        console.print(f"Plist: {s['plist_path']}")
-        console.print(f"Logs: {s['log_dir']}")
+        log_dir = s.pop("log_dir", "")
+        for name, info in s.items():
+            status_str = "[green]running[/green]" if info["running"] else ("[yellow]installed[/yellow]" if info["installed"] else "[dim]not installed[/dim]")
+            console.print(f"  {name}: {status_str}")
+            if info["installed"]:
+                console.print(f"    {info['plist_path']}")
+        if log_dir:
+            console.print(f"\nLogs: {log_dir}")
 
 
 @app.command()
