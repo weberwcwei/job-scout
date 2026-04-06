@@ -128,9 +128,14 @@ def scrape(
                     db.finish_run(run_id, 0, 0, error)
                 continue
 
-            console.print(
-                f'[dim]Scraped {site_name}: "{search_term}" in {location} — {len(jobs)} jobs[/dim]'
-            )
+            if jobs:
+                console.print(
+                    f'[dim]Scraped {site_name}: "{search_term}" in {location} — {len(jobs)} jobs[/dim]'
+                )
+            else:
+                console.print(
+                    f'[yellow]Warning: {site_name} returned 0 jobs for "{search_term}" in {location}[/yellow]'
+                )
 
             page_new = 0
             for job in jobs:
@@ -349,6 +354,16 @@ def stats():
         for tier, cnt in s["score_distribution"].items():
             table.add_row(tier, str(cnt))
         console.print(table)
+
+    zr = s.get("zero_result_runs", {})
+    if zr.get("count", 0) > 0:
+        console.print(
+            f"\n[yellow]Warning: {zr['count']} zero-result run(s) in the last 7 days[/yellow]",
+        )
+        for run in zr["recent"][:5]:
+            console.print(
+                f'  [dim]{run["site"]}: "{run["search_term"]}" in {run["location"]} ({run["started_at"]})[/dim]'
+            )
 
 
 @app.command()

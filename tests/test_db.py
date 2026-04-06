@@ -96,3 +96,63 @@ class TestGetJobsLimitNone:
         # limit=None returns all
         all_jobs = db.get_jobs(limit=None)
         assert len(all_jobs) == 60
+
+
+class TestGetStatsZeroResultRuns:
+    def test_counts_zero_result_runs(self, db):
+        """get_stats() returns count of non-error runs with jobs_found=0."""
+        from job_scout.models import ScrapeRun, Site
+        from datetime import datetime
+
+        # A zero-result run (no error)
+        run = ScrapeRun(
+            site=Site.LINKEDIN,
+            search_term="python",
+            location="Remote",
+            started_at=datetime.now(),
+        )
+        run_id = db.record_run(run)
+        db.finish_run(run_id, jobs_found=0, jobs_new=0)
+
+        # A successful run with results
+        run2 = ScrapeRun(
+            site=Site.INDEED,
+            search_term="python",
+            location="Remote",
+            started_at=datetime.now(),
+        )
+        run_id2 = db.record_run(run2)
+        db.finish_run(run_id2, jobs_found=5, jobs_new=3)
+
+        # An error run (should NOT count as zero-result)
+        run3 = ScrapeRun(
+            site=Site.GOOGLE,
+            search_term="python",
+            location="Remote",
+            started_at=datetime.now(),
+        )
+        run_id3 = db.record_run(run3)
+        db.finish_run(run_id3, jobs_found=0, jobs_new=0, error="timeout")
+
+        stats = db.get_stats()
+        assert stats["zero_result_runs"]["count"] == 1
+        assert len(stats["zero_result_runs"]["recent"]) == 1
+        assert stats["zero_result_runs"]["recent"][0]["site"] == "linkedin"
+
+    def test_zero_result_runs_empty_when_none(self, db):
+        """get_stats() returns zero count when all runs had results."""
+        from job_scout.models import ScrapeRun, Site
+        from datetime import datetime
+
+        run = ScrapeRun(
+            site=Site.LINKEDIN,
+            search_term="python",
+            location="Remote",
+            started_at=datetime.now(),
+        )
+        run_id = db.record_run(run)
+        db.finish_run(run_id, jobs_found=10, jobs_new=5)
+
+        stats = db.get_stats()
+        assert stats["zero_result_runs"]["count"] == 0
+        assert stats["zero_result_runs"]["recent"] == []

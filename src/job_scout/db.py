@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from job_scout.models import (
@@ -236,6 +236,27 @@ class JobDB:
             "SELECT * FROM scrape_runs ORDER BY started_at DESC LIMIT 5"
         ).fetchall()
         stats["recent_runs"] = [dict(r) for r in rows]
+
+        # Zero-result runs (no error but jobs_found=0) in last 7 days
+        cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+        zero_count = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM scrape_runs WHERE jobs_found = 0 AND error IS NULL AND started_at >= ?",
+            (cutoff,),
+        ).fetchone()["cnt"]
+        rows = self.conn.execute(
+            """SELECT site, search_term, location, started_at
+            FROM scrape_runs
+            WHERE jobs_found = 0
+              AND error IS NULL
+              AND started_at >= ?
+            ORDER BY started_at DESC
+            LIMIT 10""",
+            (cutoff,),
+        ).fetchall()
+        stats["zero_result_runs"] = {
+            "count": zero_count,
+            "recent": [dict(r) for r in rows],
+        }
 
         return stats
 
