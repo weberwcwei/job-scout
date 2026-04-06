@@ -150,6 +150,7 @@ def scrape(
 
             page_new = 0
             for job in jobs:
+                job.search_term = search_term
                 if job.score_breakdown.get("dealbreaker"):
                     job.status = "filtered"
                     total_filtered += 1
@@ -451,6 +452,19 @@ def stats():
         table.add_column("Count", justify="right")
         for tier, cnt in s["score_distribution"].items():
             table.add_row(tier, str(cnt))
+        console.print(table)
+
+    if s.get("by_search_term"):
+        table = Table(title="By Search Term", show_header=True)
+        table.add_column("Search Term")
+        table.add_column("Jobs", justify="right")
+        table.add_column("Avg Score", justify="right")
+        for row in s["by_search_term"]:
+            table.add_row(
+                row["search_term"],
+                str(row["count"]),
+                str(row["avg_score"]),
+            )
         console.print(table)
 
     zr = s.get("zero_result_runs", {})

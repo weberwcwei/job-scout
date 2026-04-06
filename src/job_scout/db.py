@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     status          TEXT DEFAULT 'new',
     notes           TEXT DEFAULT '',
     applied_date    TEXT,
+    search_term     TEXT,
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now'))
 );
@@ -81,6 +82,17 @@ class JobDB:
 
     def _init_schema(self) -> None:
         self.conn.executescript(SCHEMA_SQL)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns that may be missing in databases created before this version."""
+        cols = {
+            r[1]
+            for r in self.conn.execute("PRAGMA table_info(jobs)").fetchall()
+        }
+        if "search_term" not in cols:
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN search_term TEXT")
+            self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -114,8 +126,9 @@ class JobDB:
                 dedup_key, source, source_id, url, title, company,
                 city, state, country, is_remote, description, job_type,
                 comp_min, comp_max, comp_currency, comp_interval,
-                date_posted, date_scraped, score, score_breakdown, status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                date_posted, date_scraped, score, score_breakdown, status, notes,
+                search_term
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.dedup_key,
                 job.source.value,
@@ -139,6 +152,7 @@ class JobDB:
                 json.dumps(job.score_breakdown),
                 job.status,
                 job.notes,
+                job.search_term,
             ),
         )
         self.conn.commit()
@@ -262,6 +276,26 @@ class JobDB:
             "count": zero_count,
             "recent": [dict(r) for r in rows],
         }
+
+        # Search term performance
+        rows = self.conn.execute(
+            """SELECT
+                search_term,
+                COUNT(*) as cnt,
+                ROUND(AVG(score), 1) as avg_score
+            FROM jobs
+            WHERE search_term IS NOT NULL
+            GROUP BY search_term
+            ORDER BY avg_score DESC"""
+        ).fetchall()
+        stats["by_search_term"] = [
+            {
+                "search_term": r["search_term"],
+                "count": r["cnt"],
+                "avg_score": r["avg_score"],
+            }
+            for r in rows
+        ]
 
         return stats
 
@@ -394,4 +428,5 @@ class JobDB:
             applied_date=date.fromisoformat(row["applied_date"])
             if row["applied_date"]
             else None,
+            search_term=row["search_term"],
         )

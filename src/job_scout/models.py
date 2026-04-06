@@ -106,6 +106,7 @@ class Job(BaseModel):
     status: str = "new"
     notes: str = ""
     applied_date: date | None = None
+    search_term: str | None = None
 
     @computed_field
     @property

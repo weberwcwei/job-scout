@@ -9,7 +9,12 @@ from job_scout.models import Job, Location, Site
 
 
 def _make_job(
-    source_id: str, *, source: str = "linkedin", score: int = 50, status: str = "new"
+    source_id: str,
+    *,
+    source: str = "linkedin",
+    score: int = 50,
+    status: str = "new",
+    search_term: str | None = None,
 ) -> Job:
     return Job(
         source=Site(source),
@@ -22,6 +27,7 @@ def _make_job(
         score=score,
         score_breakdown={"keyword": score},
         status=status,
+        search_term=search_term,
     )
 
 
@@ -445,3 +451,56 @@ class TestGetDailyTrend:
     def test_empty_db(self, db):
         trend = db.get_daily_trend(days=7, score_threshold=55)
         assert trend == []
+
+
+class TestSearchTermStats:
+    def test_returns_per_term_breakdown(self, db):
+        """get_stats() returns job count and avg score per search_term."""
+        db.upsert_job(_make_job("st1", score=80, search_term="python"))
+        db.upsert_job(_make_job("st2", score=60, search_term="python"))
+        db.upsert_job(_make_job("st3", score=40, search_term="java"))
+
+        stats = db.get_stats()
+        by_term = stats["by_search_term"]
+        assert len(by_term) == 2
+
+        # Sorted by avg_score DESC — python (70) first, java (40) second
+        assert by_term[0]["search_term"] == "python"
+        assert by_term[0]["count"] == 2
+        assert by_term[0]["avg_score"] == 70.0
+
+        assert by_term[1]["search_term"] == "java"
+        assert by_term[1]["count"] == 1
+        assert by_term[1]["avg_score"] == 40.0
+
+    def test_excludes_null_search_term(self, db):
+        """Legacy jobs with NULL search_term are excluded from the breakdown."""
+        db.upsert_job(_make_job("leg1", score=50))  # no search_term
+        db.upsert_job(_make_job("st4", score=60, search_term="rust"))
+
+        stats = db.get_stats()
+        by_term = stats["by_search_term"]
+        assert len(by_term) == 1
+        assert by_term[0]["search_term"] == "rust"
+
+    def test_empty_when_no_tagged_jobs(self, db):
+        """by_search_term is empty when no jobs have search_term set."""
+        db.upsert_job(_make_job("leg2", score=50))
+
+        stats = db.get_stats()
+        assert stats["by_search_term"] == []
+
+    def test_search_term_stored_on_insert(self, db):
+        """search_term is persisted through upsert and readable via get_job."""
+        _, row_id = db.upsert_job(_make_job("p1", search_term="ML engineer"))
+        job = db.get_job(row_id)
+        assert job.search_term == "ML engineer"
+
+    def test_search_term_preserved_on_re_upsert(self, db):
+        """Re-upserting a job doesn't clear the original search_term."""
+        _, row_id = db.upsert_job(_make_job("p2", score=30, search_term="data science"))
+        # Re-upsert same dedup_key with different score (simulates re-scrape)
+        db.upsert_job(_make_job("p2", score=80, search_term="analytics"))
+        job = db.get_job(row_id)
+        # First discovery's search_term is kept (upsert UPDATE doesn't touch search_term)
+        assert job.search_term == "data science"
