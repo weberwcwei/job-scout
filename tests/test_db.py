@@ -490,6 +490,17 @@ class TestSearchTermStats:
         stats = db.get_stats()
         assert stats["by_search_term"] == []
 
+    def test_excludes_filtered_jobs(self, db):
+        """Filtered (dealbreaker) jobs are excluded from search term stats."""
+        db.upsert_job(_make_job("f1", score=0, status="filtered", search_term="go"))
+        db.upsert_job(_make_job("f2", score=70, status="new", search_term="go"))
+
+        stats = db.get_stats()
+        by_term = stats["by_search_term"]
+        assert len(by_term) == 1
+        assert by_term[0]["count"] == 1
+        assert by_term[0]["avg_score"] == 70.0
+
     def test_search_term_stored_on_insert(self, db):
         """search_term is persisted through upsert and readable via get_job."""
         _, row_id = db.upsert_job(_make_job("p1", search_term="ML engineer"))

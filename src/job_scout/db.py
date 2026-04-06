@@ -54,6 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_date_posted ON jobs(date_posted DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company);
 CREATE INDEX IF NOT EXISTS idx_jobs_date_scraped ON jobs(date_scraped DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_search_term ON jobs(search_term);
 
 CREATE TABLE IF NOT EXISTS scrape_runs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -277,7 +278,7 @@ class JobDB:
             "recent": [dict(r) for r in rows],
         }
 
-        # Search term performance
+        # Search term performance (exclude filtered/dealbreaker jobs for meaningful avg)
         rows = self.conn.execute(
             """SELECT
                 search_term,
@@ -285,6 +286,7 @@ class JobDB:
                 ROUND(AVG(score), 1) as avg_score
             FROM jobs
             WHERE search_term IS NOT NULL
+              AND status != 'filtered'
             GROUP BY search_term
             ORDER BY avg_score DESC"""
         ).fetchall()

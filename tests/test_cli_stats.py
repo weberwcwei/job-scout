@@ -143,6 +143,8 @@ class TestStatsSearchTermBreakdown:
         assert "By Search Term" in result.output
         assert "python" in result.output
         assert "java" in result.output
+        assert "70.0" in result.output  # avg of 80 + 60
+        assert "40.0" in result.output  # single java job
 
     def test_no_search_term_table_when_empty(self, tmp_path):
         """stats command omits the table when no jobs have search_term."""
