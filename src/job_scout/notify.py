@@ -65,13 +65,16 @@ class Notifier:
             return
 
         lines = [f"job-scout alert — {len(jobs)} new match(es)\n"]
-        for job in jobs[:10]:
-            salary = job.compensation.display if job.compensation else "No salary"
+        for job in jobs:
+            salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
             id_tag = f"#{job.id} " if job.id else ""
+            loc_line = f"  {job.location.display}"
+            if salary:
+                loc_line += f" | {salary}"
             lines.append(
                 f"[{job.score}] (kw:{kw}) {id_tag}{job.company}: {job.title}\n"
-                f"  {job.location.display} | {salary}\n"
+                f"{loc_line}\n"
                 f"  {job.url}\n"
             )
         body = "\n".join(lines)
@@ -90,13 +93,16 @@ class Notifier:
             return
 
         lines = [f"*job\\-scout* — {len(jobs)} new match\\(es\\)\n"]
-        for job in jobs[:10]:
-            salary = job.compensation.display if job.compensation else "No salary"
+        for job in jobs:
+            salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
             id_tag = f"\\#{job.id} " if job.id else ""
+            loc_line = f"  {_esc_md(job.location.display)}"
+            if salary:
+                loc_line += f" \\| {_esc_md(salary)}"
             lines.append(
                 f"*{job.score}* \\(kw:{kw}\\) \\| {id_tag}[{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
-                f"  {_esc_md(job.location.display)} \\| {_esc_md(salary)}"
+                f"{loc_line}"
             )
         text = "\n".join(lines)
 

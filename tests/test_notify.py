@@ -163,6 +163,113 @@ class TestNotifierTelegram:
         assert "example.com" in text
 
 
+class TestNotifyFormatConcise:
+    """Tests that notifications use concise salary and omit when missing."""
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_telegram_uses_concise_salary(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
+        )
+        notifier = Notifier(cfg)
+        # Job with salary — the _make_job helper has min=180000, max=250000
+        notifier.notify_new_jobs([_make_job(score=70)])
+
+        text = mock_post.call_args.kwargs["json"]["text"]
+        # Should have concise salary like $180k-$250k, NOT $180,000
+        assert "$180k" in text
+        assert "$180,000" not in text
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_telegram_omits_salary_when_missing(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
+        )
+        notifier = Notifier(cfg)
+        job = _make_job(score=70)
+        job.compensation = None
+        notifier.notify_new_jobs([job])
+
+        text = mock_post.call_args.kwargs["json"]["text"]
+        assert "No salary" not in text
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_no_cap_on_jobs(self, mock_subprocess, mock_post):
+        """All jobs sent, not just first 10."""
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
+        )
+        notifier = Notifier(cfg)
+        jobs = [_make_job(score=60 + i, company=f"Co{i}") for i in range(15)]
+        notifier.notify_new_jobs(jobs)
+
+        text = mock_post.call_args.kwargs["json"]["text"]
+        # Job #15 (Co14) should be present — old code capped at 10
+        assert "Co14" in text
+
+    @patch("subprocess.run")
+    def test_email_uses_concise_salary(self, mock_subprocess):
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(
+                enabled=True,
+                username="a@b.com",
+                app_password="pass",
+                to_address="a@b.com",
+            ),
+            telegram=TelegramConfig(enabled=False),
+        )
+        notifier = Notifier(cfg)
+        with patch("job_scout.notify.smtplib.SMTP") as mock_smtp:
+            mock_smtp_instance = MagicMock()
+            mock_smtp.return_value = mock_smtp_instance
+            notifier.notify_new_jobs([_make_job(score=70)])
+
+        # Get the email body from send_message call
+        call_args = mock_smtp_instance.send_message.call_args
+        msg = call_args[0][0]
+        body = msg.get_payload()[0].get_payload(decode=True).decode()
+        assert "$180k" in body
+        assert "$180,000" not in body
+
+    @patch("subprocess.run")
+    def test_email_omits_salary_when_missing(self, mock_subprocess):
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(
+                enabled=True,
+                username="a@b.com",
+                app_password="pass",
+                to_address="a@b.com",
+            ),
+            telegram=TelegramConfig(enabled=False),
+        )
+        notifier = Notifier(cfg)
+        job = _make_job(score=70)
+        job.compensation = None
+        with patch("job_scout.notify.smtplib.SMTP") as mock_smtp:
+            mock_smtp_instance = MagicMock()
+            mock_smtp.return_value = mock_smtp_instance
+            notifier.notify_new_jobs([job])
+
+        call_args = mock_smtp_instance.send_message.call_args
+        msg = call_args[0][0]
+        body = msg.get_payload()[0].get_payload(decode=True).decode()
+        assert "No salary" not in body
+
+
 class TestEscMd:
     def test_escapes_special_chars(self):
         assert _esc_md("hello_world") == r"hello\_world"
