@@ -829,6 +829,94 @@ def digest():
         console.print("[red]Failed to send digest. Check notification config.[/red]")
 
 
+@app.command()
+def report():
+    """Generate a daily markdown report of top job matches."""
+    from datetime import timedelta
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+
+    cutoff = datetime.now() - timedelta(hours=24)
+    jobs = db.get_jobs(status="new", min_score=40, since=cutoff, limit=None)
+    jobs = _filter_alert_jobs(jobs, cfg)
+
+    threshold = cfg.scoring.min_alert_score
+    high = [j for j in jobs if j.score >= threshold][:20]
+    medium = [j for j in jobs if 40 <= j.score < threshold][:20]
+    medium_total = sum(1 for j in jobs if 40 <= j.score < threshold)
+
+    stats = db.get_alert_stats(score_threshold=threshold)
+    trend = db.get_daily_trend(days=7, score_threshold=threshold)
+    db.close()
+
+    now = datetime.now().astimezone()
+    report_dir = cfg.report_dir
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / f"{now.strftime('%Y-%m-%d')}.md"
+
+    lines = [
+        "---",
+        "title: Job Hunt Daily Report",
+        f"generated: {now.isoformat()}",
+        "---",
+        "",
+        f"# Job Hunt Report — {now.strftime('%A, %B %-d, %Y')}",
+        "",
+        "## Summary",
+        "",
+        "| Metric | Count |",
+        "|--------|-------|",
+        f"| Scraped (24h) | {stats['scraped_24h']} |",
+        f"| High match (>={threshold}) | {stats['high_count']} |",
+        f"| Worth review (40-{threshold - 1}) | {stats['medium_count']} |",
+        f"| Total unreviewed | {stats['total_new']} |",
+        "",
+    ]
+
+    if high:
+        lines.extend([
+            f"## High Match (score >= {threshold})",
+            "",
+            "| Score | Title | Company | Location | Comp | Link |",
+            "|-------|-------|---------|----------|------|------|",
+        ])
+        for j in high:
+            salary = j.compensation.display_concise if j.compensation else ""
+            loc = j.location.display
+            lines.append(f"| {j.score} | {j.title} | {j.company} | {loc} | {salary} | [apply]({j.url}) |")
+        lines.append("")
+
+    if medium:
+        lines.extend([
+            f"## Worth Review (40-{threshold - 1})",
+            "",
+            "| Score | Title | Company | Location | Comp | Link |",
+            "|-------|-------|---------|----------|------|------|",
+        ])
+        for j in medium:
+            salary = j.compensation.display_concise if j.compensation else ""
+            loc = j.location.display
+            lines.append(f"| {j.score} | {j.title} | {j.company} | {loc} | {salary} | [apply]({j.url}) |")
+        if medium_total > 20:
+            lines.append(f"\n*(showing top 20 of {medium_total})*")
+        lines.append("")
+
+    if trend:
+        lines.extend([
+            "## 7-Day Trend",
+            "",
+            f"| Date | Total | High (>={threshold}) | Medium (40-{threshold - 1}) |",
+            "|------|-------|-------------|----------------|",
+        ])
+        for row in trend:
+            lines.append(f"| {row['date']} | {row['total']} | {row['high']} | {row['medium']} |")
+        lines.append("")
+
+    report_path.write_text("\n".join(lines))
+    console.print(f"[green]Report saved to {report_path}[/green]")
+
+
 @app.callback()
 def main():
     """job-scout — Lightweight job scraping and alerting."""
