@@ -89,14 +89,20 @@ class JobDB:
     def upsert_job(self, job: Job) -> tuple[bool, int]:
         """Insert a job. Returns (is_new, row_id)."""
         cur = self.conn.execute(
-            "SELECT id FROM jobs WHERE dedup_key = ?", (job.dedup_key,)
+            "SELECT id, status FROM jobs WHERE dedup_key = ?", (job.dedup_key,)
         )
         existing = cur.fetchone()
         if existing:
-            # Update score if recalculated
+            old_status = existing["status"]
+            new_status = job.status if old_status in ("new", "filtered") else old_status
             self.conn.execute(
-                "UPDATE jobs SET score = ?, score_breakdown = ?, updated_at = datetime('now') WHERE id = ?",
-                (job.score, json.dumps(job.score_breakdown), existing["id"]),
+                "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
+                (
+                    job.score,
+                    json.dumps(job.score_breakdown),
+                    new_status,
+                    existing["id"],
+                ),
             )
             self.conn.commit()
             return False, existing["id"]

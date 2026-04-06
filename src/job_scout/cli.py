@@ -74,6 +74,7 @@ def scrape(
     new_high_score: list = []
     total_found = 0
     total_new = 0
+    total_filtered = 0
 
     # Build task list for concurrent execution
     tasks = [
@@ -133,8 +134,16 @@ def scrape(
 
             page_new = 0
             for job in jobs:
-                if job.score == 0:
-                    continue  # Dealbreaker
+                if job.score_breakdown.get("dealbreaker"):
+                    job.status = "filtered"
+                    total_filtered += 1
+                    if db:
+                        db.upsert_job(job)
+                    elif dry_run:
+                        console.print(
+                            f"  [dim]{job.score}[/dim] | {job.company}: {job.title} | [red]dealbreaker[/red]"
+                        )
+                    continue
 
                 total_found += 1
 
@@ -161,7 +170,10 @@ def scrape(
             if db and run_id:
                 db.finish_run(run_id, len(jobs), page_new)
 
-    console.print(f"\n[bold]Done.[/bold] Found {total_found} jobs, {total_new} new.")
+    parts = [f"Found {total_found} jobs", f"{total_new} new"]
+    if total_filtered:
+        parts.append(f"{total_filtered} filtered by dealbreakers")
+    console.print(f"\n[bold]Done.[/bold] {', '.join(parts)}.")
 
     if new_high_score and not dry_run:
         new_high_score.sort(key=lambda j: j.score, reverse=True)
@@ -177,7 +189,7 @@ def scrape(
 @app.command("list")
 def list_jobs(
     status: str = typer.Option(
-        "new", help="Filter by status: new, applied, rejected, all"
+        "new", help="Filter by status: new, applied, rejected, filtered, all"
     ),
     min_score: int = typer.Option(None, "--min-score", help="Minimum score filter"),
     company: str = typer.Option(None, help="Filter by company name"),
@@ -187,6 +199,8 @@ def list_jobs(
     cfg = _get_config()
     db = _get_db(cfg)
     min_s = min_score if min_score is not None else cfg.scoring.min_display_score
+    if status == "filtered" and min_score is None:
+        min_s = 0
 
     jobs = db.get_jobs(status=status, min_score=min_s, company=company, limit=limit)
     db.close()
@@ -552,77 +566,92 @@ def rescore(
     total = len(jobs)
 
     updates: list[tuple[int, int, dict]] = []
+    status_updates: list[tuple[int, str]] = []
     for job in jobs:
         old_score = job.score
         new_score, breakdown = scorer.score(job)
         if new_score != old_score:
             updates.append((job.id, new_score, breakdown))
+        # Track dealbreaker status transitions
+        is_dealbreaker = breakdown.get("dealbreaker", False)
+        if is_dealbreaker and job.status == "new":
+            status_updates.append((job.id, "filtered"))
+        elif not is_dealbreaker and job.status == "filtered":
+            status_updates.append((job.id, "new"))
 
-    if not updates:
-        console.print(f"Rescored {total} jobs — no score changes.")
+    if not updates and not status_updates:
+        console.print(f"Rescored {total} jobs — no changes.")
         db.close()
         return
 
     if not dry_run:
-        db.batch_update_scores(updates)
+        if updates:
+            db.batch_update_scores(updates)
+        for job_id, new_status in status_updates:
+            db.update_status(job_id, new_status)
 
-    # Compute stats over changed jobs
-    deltas = [
-        new - job.score
-        for job_id, new, _ in updates
-        for job in jobs
-        if job.id == job_id
-    ]
     # Build a lookup for old scores
     old_scores = {job.id: job.score for job in jobs}
-    deltas = [new_score - old_scores[row_id] for row_id, new_score, _ in updates]
-    avg_shift = sum(deltas) / len(deltas)
-    min_delta = min(deltas)
-    max_delta = max(deltas)
-
-    # Sort by absolute delta descending
-    scored_updates = [
-        (row_id, old_scores[row_id], new_score, breakdown)
-        for row_id, new_score, breakdown in updates
-    ]
-    scored_updates.sort(key=lambda x: abs(x[2] - x[1]), reverse=True)
-
-    # Build company/title lookup
     job_lookup = {job.id: job for job in jobs}
 
     # Print summary
     prefix = "[DRY RUN] " if dry_run else ""
     console.print(f"{prefix}Rescored {total} jobs ({len(updates)} changed)")
-    console.print(
-        f"  Avg shift: {avg_shift:+.1f} | Range: {min_delta:+d} to {max_delta:+d}"
-    )
-    console.print()
 
-    # Table of top 25
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Score", width=7)
-    table.add_column("Company", width=16)
-    table.add_column("Title", width=36)
+    scored_updates = []
+    if updates:
+        deltas = [new_score - old_scores[row_id] for row_id, new_score, _ in updates]
+        avg_shift = sum(deltas) / len(deltas)
+        min_delta = min(deltas)
+        max_delta = max(deltas)
 
-    for row_id, old, new, _ in scored_updates[:25]:
-        job = job_lookup[row_id]
-        score_style = "green" if new > old else "red"
-        table.add_row(
-            f"[{score_style}]{old}→{new}[/{score_style}]",
-            job.company[:16],
-            job.title[:36],
+        scored_updates = [
+            (row_id, old_scores[row_id], new_score, breakdown)
+            for row_id, new_score, breakdown in updates
+        ]
+        scored_updates.sort(key=lambda x: abs(x[2] - x[1]), reverse=True)
+
+        console.print(
+            f"  Avg shift: {avg_shift:+.1f} | Range: {min_delta:+d} to {max_delta:+d}"
         )
+        console.print()
 
-    console.print(table)
+        # Table of top 25
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Score", width=7)
+        table.add_column("Company", width=16)
+        table.add_column("Title", width=36)
+
+        for row_id, old, new, _ in scored_updates[:25]:
+            job = job_lookup[row_id]
+            score_style = "green" if new > old else "red"
+            table.add_row(
+                f"[{score_style}]{old}→{new}[/{score_style}]",
+                job.company[:16],
+                job.title[:36],
+            )
+
+        console.print(table)
+
+    if status_updates:
+        newly_filtered = sum(1 for _, s in status_updates if s == "filtered")
+        newly_unfiltered = sum(1 for _, s in status_updates if s == "new")
+        if newly_filtered:
+            console.print(f"  {newly_filtered} job(s) now filtered by dealbreakers")
+        if newly_unfiltered:
+            console.print(
+                f"  {newly_unfiltered} job(s) un-filtered (dealbreaker removed)"
+            )
 
     # Write log file
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"rescore-{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.log"
     with open(log_path, "w") as f:
         f.write(f"{prefix}Rescored {total} jobs ({len(updates)} changed)\n")
-        f.write(
-            f"Avg shift: {avg_shift:+.1f} | Range: {min_delta:+d} to {max_delta:+d}\n\n"
-        )
+        if updates:
+            f.write(
+                f"Avg shift: {avg_shift:+.1f} | Range: {min_delta:+d} to {max_delta:+d}\n\n"
+            )
         for row_id, old, new, breakdown in scored_updates:
             job = job_lookup[row_id]
             f.write(f"{old}→{new} | {job.company}: {job.title} | {breakdown}\n")

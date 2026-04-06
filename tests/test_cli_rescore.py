@@ -114,7 +114,7 @@ class TestRescoreUpdatesScores:
         # Second rescore — should find no changes
         result = runner.invoke(app, ["rescore"])
         assert result.exit_code == 0
-        assert "no score changes" in result.output
+        assert "no changes" in result.output
 
 
 class TestRescoreFilters:
@@ -216,5 +216,5 @@ class TestRescoreOutput:
 
         # Second rescore — no changes, no log file
         result = runner.invoke(app, ["rescore"])
-        assert "no score changes" in result.output
+        assert "no changes" in result.output
         assert list(log_dir.glob("rescore-*.log")) == []
