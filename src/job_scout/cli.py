@@ -51,6 +51,15 @@ def _get_db(cfg: AppConfig | None = None):
     return JobDB(path)
 
 
+def _filter_alert_jobs(jobs: list, cfg) -> list:
+    """Filter jobs by alert_states config: remote, state in allowed list, or unknown state."""
+    allowed = cfg.scoring.alert_states
+    return [
+        j for j in jobs
+        if j.location.is_remote or not allowed or j.location.state in (None, *allowed)
+    ]
+
+
 @app.command()
 def scrape(
     site: str = typer.Option(
