@@ -168,15 +168,9 @@ def scrape(
                     if is_new:
                         page_new += 1
                         total_new += 1
-                        loc = job.location
-                        allowed = cfg.scoring.alert_states
-                        in_area = (
-                            loc.is_remote
-                            or not allowed
-                            or loc.state in (None, *allowed)
-                        )
-                        if job.score >= cfg.scoring.min_alert_score and in_area:
-                            new_high_score.append(job)
+                        if job.score >= cfg.scoring.min_alert_score:
+                            if _filter_alert_jobs([job], cfg):
+                                new_high_score.append(job)
                 elif dry_run and job.score >= cfg.scoring.min_display_score:
                     console.print(
                         f"  [green]{job.score}[/green] | {job.company}: {job.title} | {job.location.display}"
