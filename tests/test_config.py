@@ -121,7 +121,9 @@ class TestResolveConfigPath:
 
     def test_returns_xdg_path_when_neither_exists(self, tmp_path):
         missing = tmp_path / "nonexistent" / "config.yaml"
-        with patch("job_scout.config.XDG_CONFIG_PATH", missing):
+        cwd_missing = tmp_path / "also_nonexistent" / "config.yaml"
+        with patch("job_scout.config.XDG_CONFIG_PATH", missing), \
+             patch("job_scout.config.DEFAULT_CONFIG_PATH", cwd_missing):
             assert resolve_config_path() == missing
 
     def test_xdg_takes_precedence_over_cwd(self, tmp_path, monkeypatch):
