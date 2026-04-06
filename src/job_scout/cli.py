@@ -907,7 +907,7 @@ def report():
             loc = j.location.display
             lines.append(f"| {j.score} | {j.title} | {j.company} | {loc} | {salary} | [apply]({j.url}) |")
         if medium_total > 20:
-            lines.append(f"\n*(showing top 20 of {medium_total})*")
+            lines.append(f"*(showing top 20 of {medium_total})*")
         lines.append("")
 
     if trend:

@@ -84,6 +84,13 @@ def generate_plists(
 def install(schedule: ScheduleConfig, project_dir: Path | None = None) -> list[Path]:
     """Install all 3 plists. Returns list of plist paths."""
     PLIST_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Clean up legacy single plist if present
+    legacy_path = PLIST_DIR / f"{LEGACY_LABEL}.plist"
+    if legacy_path.exists():
+        subprocess.run(["launchctl", "unload", str(legacy_path)], capture_output=True)
+        legacy_path.unlink()
+
     plists = generate_plists(schedule, project_dir)
     paths = []
 

@@ -33,3 +33,15 @@ def test_display_concise_small_amount():
 def test_display_concise_min_only():
     comp = Compensation(min_amount=150000, max_amount=None)
     assert comp.display_concise == "$150k"
+
+
+def test_display_concise_hourly_range():
+    """Hourly rate (< 1000) uses raw dollar format."""
+    comp = Compensation(min_amount=50, max_amount=75)
+    assert comp.display_concise == "$50-$75"
+
+
+def test_display_concise_max_only():
+    """Max amount with no min returns empty (min_amount is falsy)."""
+    comp = Compensation(min_amount=None, max_amount=200000)
+    assert comp.display_concise == ""

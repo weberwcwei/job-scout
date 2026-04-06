@@ -134,3 +134,56 @@ class TestReportCommand:
             result = runner.invoke(app, ["report"])
 
         assert result.exit_code == 0
+
+    def test_report_medium_only_no_high(self, tmp_path):
+        """Report with medium-score jobs but no high-score jobs omits High Match section."""
+        from typer.testing import CliRunner
+        from job_scout.cli import app
+
+        db_path = tmp_path / "test.db"
+        report_dir = tmp_path / "reports"
+        runner = CliRunner()
+
+        db = JobDB(db_path)
+        db.upsert_job(_make_job("m1", score=45, company="MediumCo"))
+        db.upsert_job(_make_job("m2", score=42, company="MediumCo2"))
+        db.close()
+
+        mock_cfg = MagicMock(spec=AppConfig)
+        mock_cfg.db_path = db_path
+        mock_cfg.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
+        mock_cfg.report_dir = report_dir
+
+        with patch("job_scout.cli._get_config", return_value=mock_cfg):
+            runner.invoke(app, ["report"])
+
+        report_file = list(report_dir.glob("*.md"))[0]
+        content = report_file.read_text()
+        assert "## High Match" not in content
+        assert "## Worth Review" in content
+        assert "MediumCo" in content
+
+    def test_report_dir_created_if_missing(self, tmp_path):
+        """report_dir is created even when it does not exist."""
+        from typer.testing import CliRunner
+        from job_scout.cli import app
+
+        db_path = tmp_path / "test.db"
+        report_dir = tmp_path / "deeply" / "nested" / "reports"
+        runner = CliRunner()
+
+        db = JobDB(db_path)
+        db.upsert_job(_make_job("rdir1", score=70))
+        db.close()
+
+        mock_cfg = MagicMock(spec=AppConfig)
+        mock_cfg.db_path = db_path
+        mock_cfg.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
+        mock_cfg.report_dir = report_dir
+
+        with patch("job_scout.cli._get_config", return_value=mock_cfg):
+            result = runner.invoke(app, ["report"])
+
+        assert result.exit_code == 0
+        assert report_dir.exists()
+        assert len(list(report_dir.glob("*.md"))) == 1
