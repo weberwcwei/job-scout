@@ -21,11 +21,15 @@
 
 ## Changelog
 
+**2026-04-06**
+- New `job-scout report` command — generates a daily markdown report with scored job tables and 7-day trend
+- New `job-scout export` command — export jobs to CSV or JSON with all the same filters as `list`
+- `digest` now includes a stats footer (unreviewed count, scraped today) and concise salary format
+- `schedule --install` now sets up scrape, digest, and report on separate schedules
+- Scrape warns when a site returns zero results
+
 **2026-04-05**
-- New `rescore` command — re-score all jobs instantly after editing your config
-- Dealbreaker jobs are now saved (as `filtered`) instead of silently dropped — run `list --status filtered` to audit them
-- `check` command now warns about weak config (missing keywords, few search terms, etc.)
-- Config file moved to `~/.config/job-scout/config.yaml` (old location still works)
+- `rescore` command, dealbreaker storage, config quality warnings, XDG config path
 
 ---
 
@@ -52,7 +56,7 @@ job-scout — 3 new match(es)
   Seattle, WA | $160k–$220k
 
 68 (kw:30) | #144 Notion: Software Engineer
-  New York, NY | No salary
+  New York, NY
 ```
 
 See a job you like? Apply on the site, then log it:
@@ -168,8 +172,6 @@ STRICT FORMAT RULES (the app validates all of these — violations cause errors)
 16. scoring.min_display_score: 20
 
 17. schedule.interval_hours: 6
-18. schedule.start_hour: 8
-19. schedule.end_hour: 23
 
 OUTPUT REQUIREMENTS:
 - Output ONLY valid YAML. No explanation, no markdown fences, no comments.
@@ -200,7 +202,7 @@ Now here is my resume:
 ```bash
 job-scout check                # validate your config
 job-scout scrape --dry-run     # test it — see results without saving
-job-scout schedule --install   # automate: scrape every 6 hours
+job-scout schedule --install   # automate: scrape, digest, and daily report
 ```
 
 You're done! Jobs will start flowing to your phone.
@@ -214,6 +216,8 @@ job-scout apply 42             # mark a job as applied
 job-scout rescore              # re-score all jobs after config changes
 job-scout stats                # see your numbers
 job-scout digest               # send today's top matches now
+job-scout report               # generate a daily markdown report
+job-scout export -o jobs.csv   # export jobs to CSV or JSON
 ```
 
 ## Your Daily Routine
