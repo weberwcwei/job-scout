@@ -138,9 +138,7 @@ class JobDB:
         return True, cur.lastrowid
 
     def job_exists(self, dedup_key: str) -> bool:
-        cur = self.conn.execute(
-            "SELECT 1 FROM jobs WHERE dedup_key = ?", (dedup_key,)
-        )
+        cur = self.conn.execute("SELECT 1 FROM jobs WHERE dedup_key = ?", (dedup_key,))
         return cur.fetchone() is not None
 
     def get_jobs(
@@ -149,7 +147,8 @@ class JobDB:
         status: str | None = None,
         min_score: int | None = None,
         company: str | None = None,
-        limit: int = 50,
+        source: str | None = None,
+        limit: int | None = 50,
         offset: int = 0,
     ) -> list[Job]:
         clauses = []
@@ -163,10 +162,15 @@ class JobDB:
         if company:
             clauses.append("company LIKE ?")
             params.append(f"%{company}%")
+        if source:
+            clauses.append("source = ?")
+            params.append(source)
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = f"SELECT * FROM jobs {where} ORDER BY score DESC, date_posted DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
+        sql = f"SELECT * FROM jobs {where} ORDER BY score DESC, date_posted DESC"
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
 
         rows = self.conn.execute(sql, params).fetchall()
         return [self._row_to_job(r) for r in rows]
@@ -185,9 +189,7 @@ class JobDB:
             updates.append("applied_date = ?")
             params.append(date.today().isoformat())
         params.append(job_id)
-        self.conn.execute(
-            f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", params
-        )
+        self.conn.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", params)
         self.conn.commit()
 
     def mark_applied(self, job_id: int, notes: str = "") -> None:
@@ -231,6 +233,20 @@ class JobDB:
 
         return stats
 
+    def batch_update_scores(self, updates: list[tuple[int, int, dict]]) -> None:
+        """Batch update job scores. Each tuple: (row_id, score, breakdown)."""
+        self.conn.execute("BEGIN")
+        try:
+            for row_id, score, breakdown in updates:
+                self.conn.execute(
+                    "UPDATE jobs SET score = ?, score_breakdown = ?, updated_at = datetime('now') WHERE id = ?",
+                    (score, json.dumps(breakdown), row_id),
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
     # --- Scrape runs ---
 
     def record_run(self, run: ScrapeRun) -> int:
@@ -260,7 +276,9 @@ class JobDB:
                 min_amount=row["comp_min"],
                 max_amount=row["comp_max"],
                 currency=row["comp_currency"] or "USD",
-                interval=CompInterval(row["comp_interval"]) if row["comp_interval"] else None,
+                interval=CompInterval(row["comp_interval"])
+                if row["comp_interval"]
+                else None,
             )
 
         return Job(
@@ -279,11 +297,15 @@ class JobDB:
             description=row["description"],
             job_type=[JobType(jt) for jt in json.loads(row["job_type"])],
             compensation=comp,
-            date_posted=date.fromisoformat(row["date_posted"]) if row["date_posted"] else None,
+            date_posted=date.fromisoformat(row["date_posted"])
+            if row["date_posted"]
+            else None,
             date_scraped=datetime.fromisoformat(row["date_scraped"]),
             score=row["score"],
             score_breakdown=json.loads(row["score_breakdown"]),
             status=row["status"],
             notes=row["notes"] or "",
-            applied_date=date.fromisoformat(row["applied_date"]) if row["applied_date"] else None,
+            applied_date=date.fromisoformat(row["applied_date"])
+            if row["applied_date"]
+            else None,
         )

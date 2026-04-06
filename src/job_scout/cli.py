@@ -15,7 +15,15 @@ from rich.table import Table
 import yaml
 from pydantic import ValidationError
 
-from job_scout.config import DEFAULT_DB_PATH, CONFIG_DIR, XDG_CONFIG_PATH, AppConfig, load_config, resolve_config_path, validate_quality
+from job_scout.config import (
+    DEFAULT_DB_PATH,
+    CONFIG_DIR,
+    XDG_CONFIG_PATH,
+    AppConfig,
+    load_config,
+    resolve_config_path,
+    validate_quality,
+)
 from job_scout.db import JobDB
 from job_scout.models import ScrapeParams, ScrapeRun, Site
 from job_scout.notify import Notifier
@@ -44,9 +52,14 @@ def _get_db(cfg: AppConfig | None = None):
 
 @app.command()
 def scrape(
-    site: str = typer.Option(None, help="Scrape specific site: linkedin, indeed, google, glassdoor, ziprecruiter, bayt"),
+    site: str = typer.Option(
+        None,
+        help="Scrape specific site: linkedin, indeed, google, glassdoor, ziprecruiter, bayt",
+    ),
     term: str = typer.Option(None, help="Override search term"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Scrape and score but don't persist"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Scrape and score but don't persist"
+    ),
 ):
     """Run scrapers, score jobs, store results, and notify on new matches."""
     cfg = _get_config()
@@ -93,7 +106,9 @@ def scrape(
 
     max_workers = min(cfg.scraping.max_workers, len(tasks)) if tasks else 1
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_run_one, task): (task, datetime.now()) for task in tasks}
+        futures = {
+            pool.submit(_run_one, task): (task, datetime.now()) for task in tasks
+        }
         for future in as_completed(futures):
             task, started_at = futures[future]
             site_name, search_term, location, jobs, error = future.result()
@@ -113,7 +128,7 @@ def scrape(
                 continue
 
             console.print(
-                f"[dim]Scraped {site_name}: \"{search_term}\" in {location} — {len(jobs)} jobs[/dim]"
+                f'[dim]Scraped {site_name}: "{search_term}" in {location} — {len(jobs)} jobs[/dim]'
             )
 
             page_new = 0
@@ -131,7 +146,11 @@ def scrape(
                         total_new += 1
                         loc = job.location
                         allowed = cfg.scoring.alert_states
-                        in_area = loc.is_remote or not allowed or loc.state in (None, *allowed)
+                        in_area = (
+                            loc.is_remote
+                            or not allowed
+                            or loc.state in (None, *allowed)
+                        )
                         if job.score >= cfg.scoring.min_alert_score and in_area:
                             new_high_score.append(job)
                 elif dry_run and job.score >= cfg.scoring.min_display_score:
@@ -146,7 +165,9 @@ def scrape(
 
     if new_high_score and not dry_run:
         new_high_score.sort(key=lambda j: j.score, reverse=True)
-        console.print(f"[bold green]{len(new_high_score)} new high-score matches![/bold green]")
+        console.print(
+            f"[bold green]{len(new_high_score)} new high-score matches![/bold green]"
+        )
         notifier.notify_new_jobs(new_high_score)
 
     if db:
@@ -155,7 +176,9 @@ def scrape(
 
 @app.command("list")
 def list_jobs(
-    status: str = typer.Option("new", help="Filter by status: new, applied, rejected, all"),
+    status: str = typer.Option(
+        "new", help="Filter by status: new, applied, rejected, all"
+    ),
     min_score: int = typer.Option(None, "--min-score", help="Minimum score filter"),
     company: str = typer.Option(None, help="Filter by company name"),
     limit: int = typer.Option(30, help="Max results"),
@@ -182,9 +205,12 @@ def list_jobs(
     table.add_column("Src", width=4)
 
     for i, job in enumerate(jobs, 1):
-        score_style = "green" if job.score >= 55 else ("yellow" if job.score >= 30 else "dim")
+        score_style = (
+            "green" if job.score >= 55 else ("yellow" if job.score >= 30 else "dim")
+        )
         posted = job.date_posted.strftime("%-md ago") if job.date_posted else "?"
         from datetime import date
+
         if job.date_posted:
             days = (date.today() - job.date_posted).days
             posted = f"{days}d" if days > 0 else "today"
@@ -200,7 +226,9 @@ def list_jobs(
         )
 
     console.print(table)
-    console.print(f"[dim]{len(jobs)} jobs shown (status={status}, min_score={min_s})[/dim]")
+    console.print(
+        f"[dim]{len(jobs)} jobs shown (status={status}, min_score={min_s})[/dim]"
+    )
 
 
 @app.command()
@@ -250,10 +278,13 @@ def mark_applied(
 
     db.mark_applied(job_id, notes)
     db.close()
-    console.print(f"[green]Marked #{job_id} ({job.company}: {job.title}) as applied.[/green]")
+    console.print(
+        f"[green]Marked #{job_id} ({job.company}: {job.title}) as applied.[/green]"
+    )
 
     if open_url:
         import webbrowser
+
         webbrowser.open(job.url)
 
 
@@ -308,8 +339,12 @@ def stats():
 
 @app.command()
 def schedule(
-    install_flag: bool = typer.Option(False, "--install", help="Install launchd schedule"),
-    uninstall_flag: bool = typer.Option(False, "--uninstall", help="Remove launchd schedule"),
+    install_flag: bool = typer.Option(
+        False, "--install", help="Install launchd schedule"
+    ),
+    uninstall_flag: bool = typer.Option(
+        False, "--uninstall", help="Remove launchd schedule"
+    ),
 ):
     """Manage launchd scheduling."""
     from job_scout import scheduler
@@ -332,7 +367,9 @@ def schedule(
 
 @app.command()
 def init(
-    full: bool = typer.Option(False, "--full", help="Use the full config template with all options"),
+    full: bool = typer.Option(
+        False, "--full", help="Use the full config template with all options"
+    ),
 ):
     """First-time setup: create config.yaml and initialize DB."""
     target = XDG_CONFIG_PATH
@@ -346,14 +383,18 @@ def init(
     # Also check CWD for existing config to migrate
     cwd_config = Path("config.yaml")
     if cwd_config.exists():
-        console.print("[yellow]Found existing config.yaml in current directory.[/yellow]")
+        console.print(
+            "[yellow]Found existing config.yaml in current directory.[/yellow]"
+        )
         console.print(f"Moving to {target}...")
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(cwd_config), str(target))
         console.print(f"[green]Moved to {target}[/green]")
     else:
         project_dir = Path(__file__).resolve().parent.parent.parent
-        template = project_dir / ("config.template.yaml" if full else "config.minimal.yaml")
+        template = project_dir / (
+            "config.template.yaml" if full else "config.minimal.yaml"
+        )
 
         if not template.exists():
             console.print(f"[red]Template not found at {template}[/red]")
@@ -381,7 +422,9 @@ def check():
     """Validate config.yaml and test connections."""
     target = resolve_config_path()
     if not target.exists():
-        console.print("[red]No config.yaml found.[/red] Run [bold]job-scout init[/bold] first.")
+        console.print(
+            "[red]No config.yaml found.[/red] Run [bold]job-scout init[/bold] first."
+        )
         raise typer.Exit(1)
 
     # 1. Parse YAML
@@ -415,10 +458,16 @@ def check():
     console.print("[green]Config is valid.[/green]")
     console.print(f"  Profile: {cfg.profile.name}")
     console.print(f"  Target: {cfg.profile.target_title}")
-    console.print(f"  Search: {len(cfg.search.terms)} term(s), {len(cfg.search.locations)} location(s)")
+    console.print(
+        f"  Search: {len(cfg.search.terms)} term(s), {len(cfg.search.locations)} location(s)"
+    )
     console.print(f"  Sites: {', '.join(cfg.search.sites)}")
-    console.print(f"  Email alerts: {'enabled' if cfg.notifications.email.enabled else 'disabled'}")
-    console.print(f"  Telegram alerts: {'enabled' if cfg.notifications.telegram.enabled else 'disabled'}")
+    console.print(
+        f"  Email alerts: {'enabled' if cfg.notifications.email.enabled else 'disabled'}"
+    )
+    console.print(
+        f"  Telegram alerts: {'enabled' if cfg.notifications.telegram.enabled else 'disabled'}"
+    )
 
     # 5. Render diagnostics (warnings first, errors last)
     if warnings:
@@ -457,7 +506,9 @@ def check():
     if cfg.notifications.telegram.enabled:
         tcfg = cfg.notifications.telegram
         if not tcfg.bot_token or not tcfg.chat_id:
-            console.print("[yellow]  Telegram enabled but bot_token or chat_id missing.[/yellow]")
+            console.print(
+                "[yellow]  Telegram enabled but bot_token or chat_id missing.[/yellow]"
+            )
         else:
             console.print("  Testing Telegram bot...", end="")
             try:
@@ -483,9 +534,109 @@ def check():
 
 
 @app.command()
+def rescore(
+    status: str = typer.Option(None, help="Filter by status: new, applied, rejected"),
+    site: str = typer.Option(None, "--site", help="Filter by source site"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show changes without persisting"
+    ),
+):
+    """Re-score all jobs using current config (instant feedback loop for config tuning)."""
+    from job_scout.scheduler import LOG_DIR
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    scorer = JobScorer(cfg.profile)
+
+    jobs = db.get_jobs(status=status, source=site, limit=None)
+    total = len(jobs)
+
+    updates: list[tuple[int, int, dict]] = []
+    for job in jobs:
+        old_score = job.score
+        new_score, breakdown = scorer.score(job)
+        if new_score != old_score:
+            updates.append((job.id, new_score, breakdown))
+
+    if not updates:
+        console.print(f"Rescored {total} jobs — no score changes.")
+        db.close()
+        return
+
+    if not dry_run:
+        db.batch_update_scores(updates)
+
+    # Compute stats over changed jobs
+    deltas = [
+        new - job.score
+        for job_id, new, _ in updates
+        for job in jobs
+        if job.id == job_id
+    ]
+    # Build a lookup for old scores
+    old_scores = {job.id: job.score for job in jobs}
+    deltas = [new_score - old_scores[row_id] for row_id, new_score, _ in updates]
+    avg_shift = sum(deltas) / len(deltas)
+    min_delta = min(deltas)
+    max_delta = max(deltas)
+
+    # Sort by absolute delta descending
+    scored_updates = [
+        (row_id, old_scores[row_id], new_score, breakdown)
+        for row_id, new_score, breakdown in updates
+    ]
+    scored_updates.sort(key=lambda x: abs(x[2] - x[1]), reverse=True)
+
+    # Build company/title lookup
+    job_lookup = {job.id: job for job in jobs}
+
+    # Print summary
+    prefix = "[DRY RUN] " if dry_run else ""
+    console.print(f"{prefix}Rescored {total} jobs ({len(updates)} changed)")
+    console.print(
+        f"  Avg shift: {avg_shift:+.1f} | Range: {min_delta:+d} to {max_delta:+d}"
+    )
+    console.print()
+
+    # Table of top 25
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Score", width=7)
+    table.add_column("Company", width=16)
+    table.add_column("Title", width=36)
+
+    for row_id, old, new, _ in scored_updates[:25]:
+        job = job_lookup[row_id]
+        score_style = "green" if new > old else "red"
+        table.add_row(
+            f"[{score_style}]{old}→{new}[/{score_style}]",
+            job.company[:16],
+            job.title[:36],
+        )
+
+    console.print(table)
+
+    # Write log file
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / f"rescore-{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.log"
+    with open(log_path, "w") as f:
+        f.write(f"{prefix}Rescored {total} jobs ({len(updates)} changed)\n")
+        f.write(
+            f"Avg shift: {avg_shift:+.1f} | Range: {min_delta:+d} to {max_delta:+d}\n\n"
+        )
+        for row_id, old, new, breakdown in scored_updates:
+            job = job_lookup[row_id]
+            f.write(f"{old}→{new} | {job.company}: {job.title} | {breakdown}\n")
+
+    console.print(f"\nFull results: {log_path}")
+
+    db.close()
+
+
+@app.command()
 def digest():
     """Send daily digest of top job matches via email and/or Telegram."""
     from datetime import timedelta
+
     cfg = _get_config()
     db = _get_db(cfg)
 
@@ -515,6 +666,7 @@ def digest():
                 f"  {job.url}\n"
             )
         from job_scout.notify import send_email
+
         if send_email(
             subject=f"job-scout digest: {len(recent)} match(es)",
             body="\n".join(lines),
@@ -525,6 +677,7 @@ def digest():
     # Telegram digest
     if cfg.notifications.telegram.enabled:
         from job_scout.notify import send_telegram, _esc_md
+
         tg_lines = [f"*job\\-scout digest* — {len(recent)} match\\(es\\)\n"]
         for job in recent[:10]:
             salary = job.compensation.display if job.compensation else "No salary"
