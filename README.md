@@ -19,6 +19,16 @@
 
 ---
 
+## Changelog
+
+**2026-04-05**
+- New `rescore` command — re-score all jobs instantly after editing your config
+- Dealbreaker jobs are now saved (as `filtered`) instead of silently dropped — run `list --status filtered` to audit them
+- `check` command now warns about weak config (missing keywords, few search terms, etc.)
+- Config file moved to `~/.config/job-scout/config.yaml` (old location still works)
+
+---
+
 job-scout scrapes 6 job boards every few hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram or email. Free, no API keys, runs on your Mac.
 
 ### Why job-scout?
@@ -201,6 +211,7 @@ You're done! Jobs will start flowing to your phone.
 job-scout list                 # see your latest job matches
 job-scout view 42              # full details for a job
 job-scout apply 42             # mark a job as applied
+job-scout rescore              # re-score all jobs after config changes
 job-scout stats                # see your numbers
 job-scout digest               # send today's top matches now
 ```
