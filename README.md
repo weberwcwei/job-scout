@@ -243,6 +243,10 @@ job-scout schedule --uninstall
 
 **Schedule not running** — Run `job-scout schedule --install` from the project directory.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=weberwcwei/job-scout&type=Date)](https://star-history.com/#weberwcwei/job-scout&Date)
+
 ## License
 
 MIT
