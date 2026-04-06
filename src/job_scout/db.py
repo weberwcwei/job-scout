@@ -52,6 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_date_posted ON jobs(date_posted DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company);
+CREATE INDEX IF NOT EXISTS idx_jobs_date_scraped ON jobs(date_scraped DESC);
 
 CREATE TABLE IF NOT EXISTS scrape_runs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,6 +155,7 @@ class JobDB:
         min_score: int | None = None,
         company: str | None = None,
         source: str | None = None,
+        since: datetime | None = None,
         limit: int | None = 50,
         offset: int = 0,
     ) -> list[Job]:
@@ -171,6 +173,9 @@ class JobDB:
         if source:
             clauses.append("source = ?")
             params.append(source)
+        if since is not None:
+            clauses.append("date_scraped >= ?")
+            params.append(since.isoformat())
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = f"SELECT * FROM jobs {where} ORDER BY score DESC, date_posted DESC"
@@ -259,6 +264,52 @@ class JobDB:
         }
 
         return stats
+
+    def get_alert_stats(self, since_hours: int = 24, score_threshold: int = 55) -> dict:
+        """Stats for digest/report: total unreviewed, scraped in window, high/medium counts."""
+        cutoff = (datetime.now() - timedelta(hours=since_hours)).isoformat()
+
+        total_new = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM jobs WHERE status = 'new'"
+        ).fetchone()["cnt"]
+
+        scraped_24h = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM jobs WHERE date_scraped >= ?", (cutoff,)
+        ).fetchone()["cnt"]
+
+        high_count = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM jobs WHERE date_scraped >= ? AND score >= ?",
+            (cutoff, score_threshold),
+        ).fetchone()["cnt"]
+
+        medium_count = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM jobs WHERE date_scraped >= ? AND score >= 40 AND score < ?",
+            (cutoff, score_threshold),
+        ).fetchone()["cnt"]
+
+        return {
+            "total_new": total_new,
+            "scraped_24h": scraped_24h,
+            "high_count": high_count,
+            "medium_count": medium_count,
+        }
+
+    def get_daily_trend(self, days: int, score_threshold: int) -> list[dict]:
+        """Per-day breakdown for the last N days: total scraped, high, medium counts."""
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        rows = self.conn.execute(
+            """SELECT
+                DATE(date_scraped) as day,
+                COUNT(*) as total,
+                SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END) as high,
+                SUM(CASE WHEN score >= 40 AND score < ? THEN 1 ELSE 0 END) as medium
+            FROM jobs
+            WHERE DATE(date_scraped) >= ?
+            GROUP BY DATE(date_scraped)
+            ORDER BY day DESC""",
+            (score_threshold, score_threshold, cutoff),
+        ).fetchall()
+        return [{"date": r["day"], "total": r["total"], "high": r["high"], "medium": r["medium"]} for r in rows]
 
     def batch_update_scores(self, updates: list[tuple[int, int, dict]]) -> None:
         """Batch update job scores. Each tuple: (row_id, score, breakdown)."""
