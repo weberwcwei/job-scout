@@ -52,6 +52,18 @@ class Compensation(BaseModel):
             parts.append(f"/{self.interval.value}")
         return " ".join(parts)
 
+    @computed_field
+    @property
+    def display_concise(self) -> str:
+        """Concise salary: '$181k-$318k'. Empty string when unavailable."""
+        if not self.min_amount:
+            return ""
+        fmt = (lambda v: f"${v / 1000:.0f}k") if self.min_amount >= 1000 else (lambda v: f"${v:.0f}")
+        parts = [fmt(self.min_amount)]
+        if self.max_amount and self.max_amount != self.min_amount:
+            parts.append(fmt(self.max_amount))
+        return "-".join(parts)
+
 
 class Location(BaseModel):
     city: str | None = None
