@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import typer
@@ -25,6 +25,7 @@ from job_scout.config import (
     validate_quality,
 )
 from job_scout.db import JobDB
+from job_scout.export import write_csv, write_json
 from job_scout.models import ScrapeParams, ScrapeRun, Site
 from job_scout.notify import Notifier
 from job_scout.scorer import JobScorer
@@ -248,6 +249,83 @@ def list_jobs(
     console.print(
         f"[dim]{len(jobs)} jobs shown (status={status}, min_score={min_s})[/dim]"
     )
+
+
+@app.command()
+def export(
+    output: Path = typer.Option(..., help="Output file path"),
+    fmt: str = typer.Option(
+        None,
+        "--format",
+        help="Output format: csv or json (default: inferred from extension, falls back to csv)",
+    ),
+    status: str = typer.Option(
+        "all", help="Filter by status: new, applied, rejected, filtered, all"
+    ),
+    min_score: int = typer.Option(None, "--min-score", help="Minimum score filter"),
+    company: str = typer.Option(None, help="Company name substring filter"),
+    source: str = typer.Option(None, "--source", help="Filter by source site"),
+    days: int = typer.Option(
+        None,
+        help="Last N days by date_posted (mutually exclusive with --since/--until)",
+    ),
+    since: str = typer.Option(None, help="Start date inclusive, YYYY-MM-DD"),
+    until: str = typer.Option(None, help="End date inclusive, YYYY-MM-DD"),
+):
+    """Export jobs to a CSV or JSON file.
+
+    Jobs with no date_posted always pass date filters.
+    """
+    from datetime import timedelta
+
+    # Validate mutually exclusive date options
+    if days is not None and (since is not None or until is not None):
+        console.print("[red]--days and --since/--until are mutually exclusive.[/red]")
+        raise typer.Exit(1)
+
+    # Resolve format
+    if fmt:
+        resolved_fmt = fmt.lower()
+    elif output.suffix.lower() == ".json":
+        resolved_fmt = "json"
+    else:
+        resolved_fmt = "csv"
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    jobs = db.get_jobs(
+        status=status,
+        min_score=min_score,
+        company=company,
+        source=source,
+        limit=None,
+    )
+    db.close()
+
+    # Apply date filtering in Python
+    if days is not None:
+        cutoff = date.today() - timedelta(days=days)
+        jobs = [j for j in jobs if j.date_posted is None or j.date_posted >= cutoff]
+    else:
+        if since is not None:
+            since_date = date.fromisoformat(since)
+            jobs = [
+                j for j in jobs if j.date_posted is None or j.date_posted >= since_date
+            ]
+        if until is not None:
+            until_date = date.fromisoformat(until)
+            jobs = [
+                j for j in jobs if j.date_posted is None or j.date_posted <= until_date
+            ]
+
+    if not jobs:
+        console.print("No jobs found matching filters.")
+        return
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    writer = write_json if resolved_fmt == "json" else write_csv
+    count = writer(jobs, output)
+    console.print(f"Exported {count} jobs to {output}")
 
 
 @app.command()
