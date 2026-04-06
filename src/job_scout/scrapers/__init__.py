@@ -24,8 +24,7 @@ class BaseScraper(ABC):
         self._proxy_index: int = 0
 
     @abstractmethod
-    def scrape(self, params: ScrapeParams) -> list[Job]:
-        ...
+    def scrape(self, params: ScrapeParams) -> list[Job]: ...
 
     def _next_proxy(self) -> str | None:
         if not self.config.proxies:
@@ -40,7 +39,9 @@ class BaseScraper(ABC):
             try:
                 from job_scout.scrapers.tls import create_tls_client
 
-                return create_tls_client(proxy=proxy, timeout=self.config.request_timeout)
+                return create_tls_client(
+                    proxy=proxy, timeout=self.config.request_timeout
+                )
             except ImportError:
                 log.warning("curl_cffi not installed, falling back to httpx")
         kwargs: dict = {

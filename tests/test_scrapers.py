@@ -37,9 +37,9 @@ class TestLinkedInScraper:
 
         scraper = LinkedInScraper(scraping_config)
         with respx.mock:
-            respx.get("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
-                return_value=httpx.Response(200, text="<html></html>")
-            )
+            respx.get(
+                "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+            ).mock(return_value=httpx.Response(200, text="<html></html>"))
             # Also mock description fetches
             respx.get("https://www.linkedin.com/jobs/view/").mock(
                 return_value=httpx.Response(200, text="")
@@ -65,11 +65,14 @@ class TestLinkedInScraper:
         """
         scraper = LinkedInScraper(scraping_config)
         with respx.mock:
-            respx.get("https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
-                return_value=httpx.Response(200, text=html)
-            )
+            respx.get(
+                "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+            ).mock(return_value=httpx.Response(200, text=html))
             respx.get(url__startswith="https://www.linkedin.com/jobs/view/").mock(
-                return_value=httpx.Response(200, text="<div class='show-more-less-html__markup'>Description</div>")
+                return_value=httpx.Response(
+                    200,
+                    text="<div class='show-more-less-html__markup'>Description</div>",
+                )
             )
             jobs = scraper.scrape(params)
             assert len(jobs) == 1
@@ -85,9 +88,17 @@ class TestIndeedScraper:
         scraper = IndeedScraper(scraping_config)
         with respx.mock:
             respx.post("https://apis.indeed.com/graphql").mock(
-                return_value=httpx.Response(200, json={
-                    "data": {"jobSearch": {"results": [], "pageInfo": {"nextCursor": None}}}
-                })
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "jobSearch": {
+                                "results": [],
+                                "pageInfo": {"nextCursor": None},
+                            }
+                        }
+                    },
+                )
             )
             jobs = scraper.scrape(params)
             assert jobs == []
@@ -98,24 +109,38 @@ class TestIndeedScraper:
         scraper = IndeedScraper(scraping_config)
         with respx.mock:
             respx.post("https://apis.indeed.com/graphql").mock(
-                return_value=httpx.Response(200, json={
-                    "data": {"jobSearch": {
-                        "results": [{
-                            "job": {
-                                "key": "abc123",
-                                "title": "Backend Engineer",
-                                "description": {"html": "<p>Great job</p>"},
-                                "location": {"city": "NYC", "admin1Code": "NY", "countryCode": "US",
-                                              "formatted": {"short": "NYC", "long": "NYC, NY"}},
-                                "compensation": {},
-                                "attributes": [],
-                                "employer": {"name": "TechCo"},
-                                "datePublished": 1711929600000,
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "jobSearch": {
+                                "results": [
+                                    {
+                                        "job": {
+                                            "key": "abc123",
+                                            "title": "Backend Engineer",
+                                            "description": {"html": "<p>Great job</p>"},
+                                            "location": {
+                                                "city": "NYC",
+                                                "admin1Code": "NY",
+                                                "countryCode": "US",
+                                                "formatted": {
+                                                    "short": "NYC",
+                                                    "long": "NYC, NY",
+                                                },
+                                            },
+                                            "compensation": {},
+                                            "attributes": [],
+                                            "employer": {"name": "TechCo"},
+                                            "datePublished": 1711929600000,
+                                        }
+                                    }
+                                ],
+                                "pageInfo": {"nextCursor": None},
                             }
-                        }],
-                        "pageInfo": {"nextCursor": None}
-                    }}
-                })
+                        }
+                    },
+                )
             )
             jobs = scraper.scrape(params)
             assert len(jobs) == 1
@@ -134,9 +159,20 @@ class TestGlassdoorScraper:
                 return_value=httpx.Response(200, text="<html></html>")
             )
             respx.post("https://www.glassdoor.com/graph").mock(
-                return_value=httpx.Response(200, json=[{
-                    "data": {"jobListings": {"jobListings": [], "totalJobsCount": 0, "paginationCursors": []}}
-                }])
+                return_value=httpx.Response(
+                    200,
+                    json=[
+                        {
+                            "data": {
+                                "jobListings": {
+                                    "jobListings": [],
+                                    "totalJobsCount": 0,
+                                    "paginationCursors": [],
+                                }
+                            }
+                        }
+                    ],
+                )
             )
             jobs = scraper.scrape(params)
             assert jobs == []
@@ -150,30 +186,42 @@ class TestGlassdoorScraper:
                 return_value=httpx.Response(200, text="<html></html>")
             )
             respx.post("https://www.glassdoor.com/graph").mock(
-                return_value=httpx.Response(200, json=[{
-                    "data": {"jobListings": {
-                        "jobListings": [{
-                            "jobview": {
-                                "header": {
-                                    "jobLink": "/job/123",
-                                    "jobTitleText": "Data Scientist",
-                                    "employerNameFromSearch": "DataCo",
-                                    "ageInDays": 2,
-                                    "payPercentile10": 80000,
-                                    "payPercentile90": 120000,
-                                    "payCurrency": "USD",
-                                    "payPeriod": "ANNUAL",
-                                },
-                                "job": {"listingId": "gd-999", "description": "ML role"},
-                                "overview": {"name": "DataCo"},
-                                "locationName": "Boston, MA",
-                                "remoteWorkTypes": [],
+                return_value=httpx.Response(
+                    200,
+                    json=[
+                        {
+                            "data": {
+                                "jobListings": {
+                                    "jobListings": [
+                                        {
+                                            "jobview": {
+                                                "header": {
+                                                    "jobLink": "/job/123",
+                                                    "jobTitleText": "Data Scientist",
+                                                    "employerNameFromSearch": "DataCo",
+                                                    "ageInDays": 2,
+                                                    "payPercentile10": 80000,
+                                                    "payPercentile90": 120000,
+                                                    "payCurrency": "USD",
+                                                    "payPeriod": "ANNUAL",
+                                                },
+                                                "job": {
+                                                    "listingId": "gd-999",
+                                                    "description": "ML role",
+                                                },
+                                                "overview": {"name": "DataCo"},
+                                                "locationName": "Boston, MA",
+                                                "remoteWorkTypes": [],
+                                            }
+                                        }
+                                    ],
+                                    "totalJobsCount": 1,
+                                    "paginationCursors": [],
+                                }
                             }
-                        }],
-                        "totalJobsCount": 1,
-                        "paginationCursors": [],
-                    }}
-                }])
+                        }
+                    ],
+                )
             )
             jobs = scraper.scrape(params)
             assert len(jobs) == 1
@@ -188,7 +236,9 @@ class TestZipRecruiterScraper:
         scraper = ZipRecruiterScraper(scraping_config)
         with respx.mock:
             respx.get("https://api.ziprecruiter.com/jobs-app/jobs").mock(
-                return_value=httpx.Response(200, json={"jobs": [], "continue_from": None})
+                return_value=httpx.Response(
+                    200, json={"jobs": [], "continue_from": None}
+                )
             )
             jobs = scraper.scrape(params)
             assert jobs == []
@@ -199,22 +249,27 @@ class TestZipRecruiterScraper:
         scraper = ZipRecruiterScraper(scraping_config)
         with respx.mock:
             respx.get("https://api.ziprecruiter.com/jobs-app/jobs").mock(
-                return_value=httpx.Response(200, json={
-                    "jobs": [{
-                        "id": "zr-001",
-                        "name": "Frontend Dev",
-                        "url": "https://ziprecruiter.com/j/zr-001",
-                        "hiring_company": {"name": "WebCo"},
-                        "job_city": "Austin",
-                        "job_state": "TX",
-                        "job_country": "US",
-                        "snippet": "<b>React</b> developer needed",
-                        "posted_time_friendly": "2 days ago",
-                        "salary_min_annual": 90000,
-                        "salary_max_annual": 130000,
-                    }],
-                    "continue_from": None,
-                })
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "jobs": [
+                            {
+                                "id": "zr-001",
+                                "name": "Frontend Dev",
+                                "url": "https://ziprecruiter.com/j/zr-001",
+                                "hiring_company": {"name": "WebCo"},
+                                "job_city": "Austin",
+                                "job_state": "TX",
+                                "job_country": "US",
+                                "snippet": "<b>React</b> developer needed",
+                                "posted_time_friendly": "2 days ago",
+                                "salary_min_annual": 90000,
+                                "salary_max_annual": 130000,
+                            }
+                        ],
+                        "continue_from": None,
+                    },
+                )
             )
             jobs = scraper.scrape(params)
             assert len(jobs) == 1
@@ -229,9 +284,9 @@ class TestBaytScraper:
 
         scraper = BaytScraper(scraping_config)
         with respx.mock:
-            respx.get(url__startswith="https://www.bayt.com/en/international/jobs/").mock(
-                return_value=httpx.Response(200, text="<html><body></body></html>")
-            )
+            respx.get(
+                url__startswith="https://www.bayt.com/en/international/jobs/"
+            ).mock(return_value=httpx.Response(200, text="<html><body></body></html>"))
             jobs = scraper.scrape(params)
             assert jobs == []
 
@@ -250,9 +305,9 @@ class TestBaytScraper:
         """
         scraper = BaytScraper(scraping_config)
         with respx.mock:
-            respx.get(url__startswith="https://www.bayt.com/en/international/jobs/").mock(
-                return_value=httpx.Response(200, text=html)
-            )
+            respx.get(
+                url__startswith="https://www.bayt.com/en/international/jobs/"
+            ).mock(return_value=httpx.Response(200, text=html))
             jobs = scraper.scrape(params)
             assert len(jobs) == 1
             assert jobs[0].title == "DevOps Engineer"
@@ -264,7 +319,14 @@ class TestScraperRegistry:
         from job_scout.scrapers import get_scraper
 
         cfg = ScrapingConfig()
-        for site in ["linkedin", "indeed", "google", "glassdoor", "ziprecruiter", "bayt"]:
+        for site in [
+            "linkedin",
+            "indeed",
+            "google",
+            "glassdoor",
+            "ziprecruiter",
+            "bayt",
+        ]:
             scraper = get_scraper(site, cfg)
             assert scraper is not None
 

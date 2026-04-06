@@ -7,7 +7,11 @@ from datetime import datetime
 
 from job_scout.models import Compensation, Job, JobType, Location, ScrapeParams, Site
 from job_scout.scrapers import BaseScraper
-from job_scout.scrapers.constants import INDEED_API_URL, INDEED_HEADERS, INDEED_SEARCH_QUERY
+from job_scout.scrapers.constants import (
+    INDEED_API_URL,
+    INDEED_HEADERS,
+    INDEED_SEARCH_QUERY,
+)
 from job_scout.util import html_to_text, is_remote, parse_compensation_interval
 
 log = logging.getLogger("job_scout.scrapers.indeed")
@@ -25,9 +29,7 @@ class IndeedScraper(BaseScraper):
         with self._make_client() as client:
             while len(jobs) < params.results_wanted and pages < self.config.max_pages:
                 log.info(f"Indeed search page, {len(jobs)} jobs so far")
-                page_jobs, cursor = self._scrape_page(
-                    client, params, cursor, seen_urls
-                )
+                page_jobs, cursor = self._scrape_page(client, params, cursor, seen_urls)
                 pages += 1
                 if not page_jobs:
                     break
@@ -40,7 +42,9 @@ class IndeedScraper(BaseScraper):
     def _scrape_page(
         self, client, params: ScrapeParams, cursor: str | None, seen_urls: set
     ) -> tuple[list[Job], str | None]:
-        search_term = params.search_term.replace('"', '\\"') if params.search_term else ""
+        search_term = (
+            params.search_term.replace('"', '\\"') if params.search_term else ""
+        )
         filters_str = ""
         if params.hours_old:
             filters_str = f'filters: {{ date: {{ field: "dateOnIndeed", start: "{params.hours_old}h" }} }}'
@@ -49,7 +53,8 @@ class IndeedScraper(BaseScraper):
             what=f'what: "{search_term}"' if search_term else "",
             location=(
                 f'location: {{where: "{params.location}", radius: {params.distance_miles}, radiusUnit: MILES}}'
-                if params.location else ""
+                if params.location
+                else ""
             ),
             cursor=f'cursor: "{cursor}"' if cursor else "",
             filters=filters_str,

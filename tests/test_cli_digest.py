@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from job_scout.cli import app
@@ -23,7 +22,9 @@ from job_scout.models import Compensation, CompInterval, Job, Location, Site
 runner = CliRunner()
 
 
-def _make_job(source_id, *, score=60, state="CA", company="TestCo", title="ML Engineer"):
+def _make_job(
+    source_id, *, score=60, state="CA", company="TestCo", title="ML Engineer"
+):
     return Job(
         source=Site.LINKEDIN,
         source_id=source_id,
@@ -36,11 +37,15 @@ def _make_job(source_id, *, score=60, state="CA", company="TestCo", title="ML En
         score_breakdown={"keyword": score},
         status="new",
         date_scraped=datetime.now(),
-        compensation=Compensation(min_amount=180000, max_amount=250000, interval=CompInterval.YEARLY),
+        compensation=Compensation(
+            min_amount=180000, max_amount=250000, interval=CompInterval.YEARLY
+        ),
     )
 
 
-def _mock_cfg(db_path, *, email_enabled=False, telegram_enabled=False, alert_states=None):
+def _mock_cfg(
+    db_path, *, email_enabled=False, telegram_enabled=False, alert_states=None
+):
     mock = MagicMock(spec=AppConfig)
     mock.db_path = db_path
     mock.scoring = ScoringConfig(min_alert_score=55, alert_states=alert_states or [])
@@ -205,11 +210,15 @@ class TestDigestCommand:
 
         cfg = _mock_cfg(db_path, alert_states=["CA", "WA"])
 
-        with patch("job_scout.cli._get_config", return_value=cfg), \
-             patch("job_scout.notify.httpx.post") as mock_post:
+        with (
+            patch("job_scout.cli._get_config", return_value=cfg),
+            patch("job_scout.notify.httpx.post") as mock_post,
+        ):
             mock_post.return_value = MagicMock(status_code=200)
             # Enable telegram to observe what gets sent
-            cfg.notifications.telegram = TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42")
+            cfg.notifications.telegram = TelegramConfig(
+                enabled=True, bot_token="123:ABC", chat_id="42"
+            )
             result = runner.invoke(app, ["digest"])
 
         assert result.exit_code == 0

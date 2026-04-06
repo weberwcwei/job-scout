@@ -254,6 +254,162 @@ class TestGetAlertStats:
         assert stats["medium_count"] == 0
 
 
+class TestUpsertJob:
+    def test_insert_new_job(self, db):
+        job = _make_job("new1", score=60)
+        is_new, row_id = db.upsert_job(job)
+        assert is_new is True
+        assert row_id is not None
+
+        fetched = db.get_job(row_id)
+        assert fetched.title == "Software Engineer"
+        assert fetched.company == "TestCo"
+        assert fetched.score == 60
+
+    def test_update_existing_job_score(self, db):
+        job = _make_job("upd1", score=30)
+        _, row_id = db.upsert_job(job)
+
+        # Upsert same dedup_key with different score
+        job2 = _make_job("upd1", score=80)
+        is_new, same_id = db.upsert_job(job2)
+        assert is_new is False
+        assert same_id == row_id
+
+        fetched = db.get_job(row_id)
+        assert fetched.score == 80
+
+    def test_upsert_preserves_applied_status(self, db):
+        """Re-upserting a job that was already 'applied' should not revert status."""
+        job = _make_job("app1", score=30, status="new")
+        _, row_id = db.upsert_job(job)
+        db.update_status(row_id, "applied")
+
+        # Re-upsert same job
+        job2 = _make_job("app1", score=50, status="new")
+        db.upsert_job(job2)
+
+        fetched = db.get_job(row_id)
+        assert fetched.status == "applied"  # preserved, not reverted to "new"
+
+    def test_upsert_updates_filtered_to_new(self, db):
+        """Re-upserting a 'filtered' job with new status should update to new."""
+        job = _make_job("filt1", score=30, status="filtered")
+        _, row_id = db.upsert_job(job)
+
+        job2 = _make_job("filt1", score=50, status="new")
+        db.upsert_job(job2)
+
+        fetched = db.get_job(row_id)
+        assert fetched.status == "new"
+
+
+class TestJobExists:
+    def test_exists_true(self, db):
+        job = _make_job("ex1")
+        db.upsert_job(job)
+        assert db.job_exists(job.dedup_key) is True
+
+    def test_exists_false(self, db):
+        assert db.job_exists("nonexistent_key") is False
+
+
+class TestGetJob:
+    def test_get_existing_job(self, db):
+        _, row_id = db.upsert_job(_make_job("gj1", score=42))
+        job = db.get_job(row_id)
+        assert job is not None
+        assert job.score == 42
+
+    def test_get_nonexistent_job(self, db):
+        assert db.get_job(99999) is None
+
+
+class TestUpdateStatus:
+    def test_update_status(self, db):
+        _, row_id = db.upsert_job(_make_job("us1"))
+        db.update_status(row_id, "rejected", "not a fit")
+
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.notes == "not a fit"
+
+    def test_update_to_applied_sets_date(self, db):
+        from datetime import date
+
+        _, row_id = db.upsert_job(_make_job("ua1"))
+        db.update_status(row_id, "applied")
+
+        job = db.get_job(row_id)
+        assert job.status == "applied"
+        assert job.applied_date == date.today()
+
+
+class TestMarkApplied:
+    def test_mark_applied(self, db):
+        from datetime import date
+
+        _, row_id = db.upsert_job(_make_job("ma1"))
+        db.mark_applied(row_id, "applied via website")
+
+        job = db.get_job(row_id)
+        assert job.status == "applied"
+        assert job.applied_date == date.today()
+        assert job.notes == "applied via website"
+
+
+class TestRecordAndFinishRun:
+    def test_record_and_finish_run(self, db):
+        from datetime import datetime
+        from job_scout.models import ScrapeRun, Site
+
+        run = ScrapeRun(
+            site=Site.LINKEDIN,
+            search_term="python",
+            location="Remote",
+            started_at=datetime.now(),
+        )
+        run_id = db.record_run(run)
+        assert run_id is not None
+
+        db.finish_run(run_id, jobs_found=10, jobs_new=5)
+
+        stats = db.get_stats()
+        assert len(stats["recent_runs"]) == 1
+        assert stats["recent_runs"][0]["jobs_found"] == 10
+        assert stats["recent_runs"][0]["jobs_new"] == 5
+
+    def test_finish_run_with_error(self, db):
+        from datetime import datetime
+        from job_scout.models import ScrapeRun, Site
+
+        run = ScrapeRun(
+            site=Site.INDEED,
+            search_term="java",
+            location="NYC",
+            started_at=datetime.now(),
+        )
+        run_id = db.record_run(run)
+        db.finish_run(run_id, jobs_found=0, jobs_new=0, error="timeout")
+
+        stats = db.get_stats()
+        assert stats["recent_runs"][0]["error"] == "timeout"
+
+
+class TestGetJobsCompanyFilter:
+    def test_filters_by_company_substring(self, db):
+        db.upsert_job(_make_job("cf1", source="linkedin"))
+        # _make_job uses "TestCo" as company
+        jobs = db.get_jobs(company="TestCo")
+        assert len(jobs) == 1
+
+    def test_company_filter_is_case_insensitive_like(self, db):
+        db.upsert_job(_make_job("cf2"))
+        # SQL LIKE is case-insensitive by default in SQLite
+        jobs = db.get_jobs(company="testco")
+        assert len(jobs) == 1
+
+
 class TestGetDailyTrend:
     def test_returns_per_day_breakdown(self, db):
         from datetime import datetime, timedelta

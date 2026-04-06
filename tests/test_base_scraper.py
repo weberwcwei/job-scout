@@ -43,6 +43,7 @@ class TestMakeClient:
         cfg = ScrapingConfig(use_tls_fingerprinting=False)
         scraper = DummyScraper(cfg)
         import httpx
+
         client = scraper._make_client()
         assert isinstance(client, httpx.Client)
         client.close()
@@ -52,6 +53,7 @@ class TestMakeClient:
         scraper = DummyScraper(cfg)
         with patch("job_scout.scrapers.tls.create_tls_client", side_effect=ImportError):
             import httpx
+
             client = scraper._make_client()
             assert isinstance(client, httpx.Client)
             client.close()
@@ -60,6 +62,7 @@ class TestMakeClient:
         cfg = ScrapingConfig(proxies=["http://proxy:8080"])
         scraper = DummyScraper(cfg)
         import httpx
+
         client = scraper._make_client()
         assert isinstance(client, httpx.Client)
         client.close()

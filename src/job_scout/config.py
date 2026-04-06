@@ -133,8 +133,10 @@ class AppConfig(BaseModel):
     report_dir: Path = Path.home() / ".local" / "share" / "job-scout" / "reports"
 
 
-CONFIG_DIR = Path.home() / ".local" / "share" / "job-scout"
-XDG_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "job-scout"
+DATA_DIR = Path.home() / ".local" / "share" / "job-scout"
+XDG_CONFIG_DIR = (
+    Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "job-scout"
+)
 XDG_CONFIG_PATH = XDG_CONFIG_DIR / "config.yaml"
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "job-scout" / "job-scout.db"
@@ -152,9 +154,7 @@ def resolve_config_path() -> Path:
 def load_config(path: Path | str | None = None) -> AppConfig:
     path = Path(path) if path else resolve_config_path()
     if not path.exists():
-        raise SystemExit(
-            f"Config not found at {path}. Run `job-scout init` first."
-        )
+        raise SystemExit(f"Config not found at {path}. Run `job-scout init` first.")
     with open(path) as f:
         raw = yaml.safe_load(f)
     try:
@@ -183,79 +183,102 @@ def validate_quality(cfg: AppConfig) -> list[ConfigDiagnostic]:
             try:
                 re.compile(pattern)
             except re.error as e:
-                diags.append(ConfigDiagnostic(
-                    level="error",
-                    field=f"profile.dealbreakers.{field_name}",
-                    message=f"Invalid regex in {field_name}: {pattern} — {e}",
-                ))
+                diags.append(
+                    ConfigDiagnostic(
+                        level="error",
+                        field=f"profile.dealbreakers.{field_name}",
+                        message=f"Invalid regex in {field_name}: {pattern} — {e}",
+                    )
+                )
 
     # --- Warnings: placeholder values ---
     if not cfg.profile.name or cfg.profile.name == "Your Name":
-        diags.append(ConfigDiagnostic(
-            level="warning",
-            field="profile.name",
-            message="profile.name is still a placeholder",
-        ))
+        diags.append(
+            ConfigDiagnostic(
+                level="warning",
+                field="profile.name",
+                message="profile.name is still a placeholder",
+            )
+        )
 
-    if not cfg.profile.target_title or cfg.profile.target_title == "your target job title":
-        diags.append(ConfigDiagnostic(
-            level="warning",
-            field="profile.target_title",
-            message="profile.target_title is still a placeholder",
-        ))
+    if (
+        not cfg.profile.target_title
+        or cfg.profile.target_title == "your target job title"
+    ):
+        diags.append(
+            ConfigDiagnostic(
+                level="warning",
+                field="profile.target_title",
+                message="profile.target_title is still a placeholder",
+            )
+        )
 
     if not cfg.search.terms or all(not t.strip() for t in cfg.search.terms):
-        diags.append(ConfigDiagnostic(
-            level="warning",
-            field="search.terms",
-            message="search.terms is empty",
-        ))
+        diags.append(
+            ConfigDiagnostic(
+                level="warning",
+                field="search.terms",
+                message="search.terms is empty",
+            )
+        )
 
     if not cfg.search.locations or all(not t.strip() for t in cfg.search.locations):
-        diags.append(ConfigDiagnostic(
-            level="warning",
-            field="search.locations",
-            message="search.locations is empty",
-        ))
+        diags.append(
+            ConfigDiagnostic(
+                level="warning",
+                field="search.locations",
+                message="search.locations is empty",
+            )
+        )
 
     # --- Warnings: keyword configuration ---
     kw = cfg.profile.keywords
     all_empty = not kw.critical and not kw.strong and not kw.moderate and not kw.weak
     if all_empty:
-        diags.append(ConfigDiagnostic(
-            level="warning",
-            field="profile.keywords",
-            message="No keywords defined — all jobs will score low",
-        ))
-    elif not kw.critical:
-        if kw.strong and not kw.moderate and not kw.weak:
-            diags.append(ConfigDiagnostic(
+        diags.append(
+            ConfigDiagnostic(
                 level="warning",
                 field="profile.keywords",
-                message="Only strong keywords defined with no critical — strong keywords are ignored without critical matches (keyword score will be 0)",
-            ))
+                message="No keywords defined — all jobs will score low",
+            )
+        )
+    elif not kw.critical:
+        if kw.strong and not kw.moderate and not kw.weak:
+            diags.append(
+                ConfigDiagnostic(
+                    level="warning",
+                    field="profile.keywords",
+                    message="Only strong keywords defined with no critical — strong keywords are ignored without critical matches (keyword score will be 0)",
+                )
+            )
         elif kw.moderate or kw.weak:
-            diags.append(ConfigDiagnostic(
-                level="warning",
-                field="profile.keywords.critical",
-                message="No critical keywords — keyword score capped at 10 regardless of other matches",
-            ))
+            diags.append(
+                ConfigDiagnostic(
+                    level="warning",
+                    field="profile.keywords.critical",
+                    message="No critical keywords — keyword score capped at 10 regardless of other matches",
+                )
+            )
 
     # --- Warnings: scoring thresholds ---
     max_score = _max_achievable_score(cfg)
     if cfg.scoring.min_alert_score > max_score:
-        diags.append(ConfigDiagnostic(
-            level="warning",
-            field="scoring.min_alert_score",
-            message=f"min_alert_score ({cfg.scoring.min_alert_score}) is unreachable — max possible score is {max_score}",
-        ))
+        diags.append(
+            ConfigDiagnostic(
+                level="warning",
+                field="scoring.min_alert_score",
+                message=f"min_alert_score ({cfg.scoring.min_alert_score}) is unreachable — max possible score is {max_score}",
+            )
+        )
 
     if cfg.scoring.min_alert_score < cfg.scoring.min_display_score:
-        diags.append(ConfigDiagnostic(
-            level="warning",
-            field="scoring.min_alert_score",
-            message=f"min_alert_score ({cfg.scoring.min_alert_score}) is below min_display_score ({cfg.scoring.min_display_score}) — alerts would fire for hidden jobs",
-        ))
+        diags.append(
+            ConfigDiagnostic(
+                level="warning",
+                field="scoring.min_alert_score",
+                message=f"min_alert_score ({cfg.scoring.min_alert_score}) is below min_display_score ({cfg.scoring.min_display_score}) — alerts would fire for hidden jobs",
+            )
+        )
 
     return diags
 

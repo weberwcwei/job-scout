@@ -154,7 +154,9 @@ class TestNotifierTelegram:
             telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
         )
         notifier = Notifier(cfg)
-        notifier.notify_new_jobs([_make_job(score=75, company="NVIDIA", title="ML Eng")])
+        notifier.notify_new_jobs(
+            [_make_job(score=75, company="NVIDIA", title="ML Eng")]
+        )
 
         text = mock_post.call_args.kwargs["json"]["text"]
         assert "75" in text
@@ -268,6 +270,103 @@ class TestNotifyFormatConcise:
         msg = call_args[0][0]
         body = msg.get_payload()[0].get_payload(decode=True).decode()
         assert "No salary" not in body
+
+
+class TestSendEmail:
+    @patch("job_scout.notify.smtplib.SMTP")
+    def test_sends_email_successfully(self, mock_smtp):
+        from job_scout.notify import send_email
+
+        mock_instance = MagicMock()
+        mock_smtp.return_value = mock_instance
+
+        cfg = EmailConfig(
+            enabled=True,
+            username="a@b.com",
+            app_password="pass",
+            to_address="recipient@b.com",
+        )
+        result = send_email(subject="Test", body="Hello", cfg=cfg)
+        assert result is True
+        mock_instance.starttls.assert_called_once()
+        mock_instance.login.assert_called_once()
+        mock_instance.send_message.assert_called_once()
+
+    def test_missing_username_returns_false(self):
+        from job_scout.notify import send_email
+
+        cfg = EmailConfig(
+            enabled=True, username="", app_password="pass", to_address="a@b.com"
+        )
+        result = send_email(subject="Test", body="Hello", cfg=cfg)
+        assert result is False
+
+    def test_missing_password_returns_false(self):
+        from job_scout.notify import send_email
+
+        cfg = EmailConfig(
+            enabled=True, username="a@b.com", app_password="", to_address="a@b.com"
+        )
+        result = send_email(subject="Test", body="Hello", cfg=cfg)
+        assert result is False
+
+    def test_missing_to_address_returns_false(self):
+        from job_scout.notify import send_email
+
+        cfg = EmailConfig(
+            enabled=True, username="a@b.com", app_password="pass", to_address=""
+        )
+        result = send_email(subject="Test", body="Hello", cfg=cfg)
+        assert result is False
+
+    @patch("job_scout.notify.smtplib.SMTP")
+    def test_smtp_error_returns_false(self, mock_smtp):
+        from job_scout.notify import send_email
+
+        mock_smtp.side_effect = Exception("Connection refused")
+        cfg = EmailConfig(
+            enabled=True, username="a@b.com", app_password="pass", to_address="a@b.com"
+        )
+        result = send_email(subject="Test", body="Hello", cfg=cfg)
+        assert result is False
+
+
+class TestNotifierEmptyJobs:
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_empty_jobs_sends_nothing(self, mock_subprocess, mock_post):
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=True),
+            email=EmailConfig(
+                enabled=True,
+                username="a@b.com",
+                app_password="pass",
+                to_address="a@b.com",
+            ),
+            telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
+        )
+        notifier = Notifier(cfg)
+        notifier.notify_new_jobs([])
+
+        mock_subprocess.assert_not_called()
+        mock_post.assert_not_called()
+
+
+class TestEscInternal:
+    def test_esc_quotes(self):
+        from job_scout.notify import _esc
+
+        assert _esc('say "hello"') == 'say \\"hello\\"'
+
+    def test_esc_backslash(self):
+        from job_scout.notify import _esc
+
+        assert _esc("path\\to\\file") == "path\\\\to\\\\file"
+
+    def test_esc_empty(self):
+        from job_scout.notify import _esc
+
+        assert _esc("") == ""
 
 
 class TestEscMd:

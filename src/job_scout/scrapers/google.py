@@ -40,7 +40,11 @@ class GoogleScraper(BaseScraper):
 
             # Pagination
             pages = 1  # initial page already fetched
-            while len(jobs) < params.results_wanted and cursor and pages < self.config.max_pages:
+            while (
+                len(jobs) < params.results_wanted
+                and cursor
+                and pages < self.config.max_pages
+            ):
                 log.info(f"Google search page, {len(jobs)} jobs so far")
                 page_jobs, cursor = self._get_next_page(client, cursor, seen_urls)
                 pages += 1
@@ -117,7 +121,9 @@ class GoogleScraper(BaseScraper):
                     if len(array) < 2:
                         continue
                     job_data_str = array[1]
-                    if not isinstance(job_data_str, str) or not job_data_str.startswith("[[["):
+                    if not isinstance(job_data_str, str) or not job_data_str.startswith(
+                        "[[["
+                    ):
                         continue
                     job_d = json.loads(job_data_str)
                     job_info = _find_job_info(job_d)

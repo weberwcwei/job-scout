@@ -309,7 +309,15 @@ class JobDB:
             ORDER BY day DESC""",
             (score_threshold, score_threshold, cutoff),
         ).fetchall()
-        return [{"date": r["day"], "total": r["total"], "high": r["high"], "medium": r["medium"]} for r in rows]
+        return [
+            {
+                "date": r["day"],
+                "total": r["total"],
+                "high": r["high"],
+                "medium": r["medium"],
+            }
+            for r in rows
+        ]
 
     def batch_update_scores(self, updates: list[tuple[int, int, dict]]) -> None:
         """Batch update job scores. Each tuple: (row_id, score, breakdown)."""

@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from job_scout.config import AppConfig, ScoringConfig
 from job_scout.db import JobDB
 from job_scout.models import Compensation, CompInterval, Job, Location, Site
 
 
-def _make_job(source_id, *, score=60, state="CA", company="TestCo", title="ML Engineer", comp=True):
+def _make_job(
+    source_id, *, score=60, state="CA", company="TestCo", title="ML Engineer", comp=True
+):
     return Job(
         source=Site.LINKEDIN,
         source_id=source_id,
@@ -26,7 +26,11 @@ def _make_job(source_id, *, score=60, state="CA", company="TestCo", title="ML En
         score_breakdown={"keyword": score},
         status="new",
         date_scraped=datetime.now(),
-        compensation=Compensation(min_amount=180000, max_amount=250000, interval=CompInterval.YEARLY) if comp else None,
+        compensation=Compensation(
+            min_amount=180000, max_amount=250000, interval=CompInterval.YEARLY
+        )
+        if comp
+        else None,
     )
 
 

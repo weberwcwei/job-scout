@@ -7,7 +7,9 @@ CHROME_UA = (
 
 # --- LinkedIn ---
 LINKEDIN_BASE_URL = "https://www.linkedin.com"
-LINKEDIN_SEARCH_URL = f"{LINKEDIN_BASE_URL}/jobs-guest/jobs/api/seeMoreJobPostings/search"
+LINKEDIN_SEARCH_URL = (
+    f"{LINKEDIN_BASE_URL}/jobs-guest/jobs/api/seeMoreJobPostings/search"
+)
 LINKEDIN_JOB_URL = f"{LINKEDIN_BASE_URL}/jobs/view"
 
 LINKEDIN_HEADERS = {

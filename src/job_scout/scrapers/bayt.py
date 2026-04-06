@@ -35,9 +35,7 @@ class BaytScraper(BaseScraper):
 
         return jobs[: params.results_wanted]
 
-    def _scrape_page(
-        self, client, params: ScrapeParams, page: int
-    ) -> list[Job]:
+    def _scrape_page(self, client, params: ScrapeParams, page: int) -> list[Job]:
         search_slug = quote_plus(params.search_term).replace("+", "-")
         url = f"{BAYT_BASE_URL}/en/international/jobs/{search_slug}-jobs/"
         query_params = {"page": page}
@@ -81,7 +79,9 @@ class BaytScraper(BaseScraper):
             return None
 
         # Title
-        title_tag = card.find("h2") or card.find("a", class_=re.compile(r"jb-title|job-title"))
+        title_tag = card.find("h2") or card.find(
+            "a", class_=re.compile(r"jb-title|job-title")
+        )
         title = title_tag.get_text(strip=True) if title_tag else ""
         if not title:
             return None
@@ -93,8 +93,9 @@ class BaytScraper(BaseScraper):
             href = f"{BAYT_BASE_URL}{href}"
 
         # Company
-        company_tag = card.find("b", class_=re.compile(r"company|employer")) or \
-                      card.find("span", class_=re.compile(r"company|employer"))
+        company_tag = card.find(
+            "b", class_=re.compile(r"company|employer")
+        ) or card.find("span", class_=re.compile(r"company|employer"))
         if not company_tag:
             company_tag = card.find("div", class_=re.compile(r"company"))
         company = company_tag.get_text(strip=True) if company_tag else "Unknown"

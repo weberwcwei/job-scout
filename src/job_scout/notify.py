@@ -38,9 +38,7 @@ class Notifier:
         else:
             title = f"job-scout: {len(jobs)} new matches"
             top3 = jobs[:3]
-            body = "\\n".join(
-                f"{j.company}: {j.title} ({j.score})" for j in top3
-            )
+            body = "\\n".join(f"{j.company}: {j.title} ({j.score})" for j in top3)
             if len(jobs) > 3:
                 body += f"\\n... and {len(jobs) - 3} more"
 
@@ -84,7 +82,6 @@ class Notifier:
             body=body,
             cfg=cfg,
         )
-
 
     def _notify_telegram(self, jobs: list[Job]) -> None:
         cfg = self.config.telegram
@@ -140,7 +137,9 @@ def send_telegram(text: str, cfg) -> bool:
 def send_email(subject: str, body: str, cfg) -> bool:
     """Send a plain-text email via Gmail SMTP."""
     if not cfg.username or not cfg.app_password or not cfg.to_address:
-        log.error("Email not configured (missing username, app_password, or to_address)")
+        log.error(
+            "Email not configured (missing username, app_password, or to_address)"
+        )
         return False
 
     msg = MIMEMultipart("alternative")

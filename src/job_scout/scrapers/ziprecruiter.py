@@ -5,7 +5,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from job_scout.models import Compensation, CompInterval, Job, Location, ScrapeParams, Site
+from job_scout.models import (
+    Compensation,
+    CompInterval,
+    Job,
+    Location,
+    ScrapeParams,
+    Site,
+)
 from job_scout.scrapers import BaseScraper
 from job_scout.scrapers.constants import ZIPRECRUITER_API_URL, ZIPRECRUITER_HEADERS
 from job_scout.util import html_to_text, is_remote
@@ -23,7 +30,9 @@ class ZipRecruiterScraper(BaseScraper):
 
         with self._make_client() as client:
             while len(jobs) < params.results_wanted and pages < self.config.max_pages:
-                log.info(f"ZipRecruiter search page {pages + 1}, {len(jobs)} jobs so far")
+                log.info(
+                    f"ZipRecruiter search page {pages + 1}, {len(jobs)} jobs so far"
+                )
                 page_jobs, continue_from = self._scrape_page(
                     client, params, continue_from
                 )
@@ -57,7 +66,9 @@ class ZipRecruiterScraper(BaseScraper):
             headers=ZIPRECRUITER_HEADERS,
         )
         if resp is None or resp.status_code != 200:
-            log.warning(f"ZipRecruiter API returned {resp.status_code if resp else 'None'}")
+            log.warning(
+                f"ZipRecruiter API returned {resp.status_code if resp else 'None'}"
+            )
             return [], None
 
         try:
@@ -104,7 +115,9 @@ class ZipRecruiterScraper(BaseScraper):
         posted_str = data.get("posted_time")
         if posted_str:
             try:
-                date_posted = datetime.fromisoformat(posted_str.replace("Z", "+00:00")).date()
+                date_posted = datetime.fromisoformat(
+                    posted_str.replace("Z", "+00:00")
+                ).date()
             except (ValueError, TypeError):
                 pass
         if not date_posted:

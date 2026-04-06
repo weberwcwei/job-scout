@@ -5,7 +5,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from job_scout.models import Compensation, CompInterval, Job, Location, ScrapeParams, Site
+from job_scout.models import (
+    Compensation,
+    CompInterval,
+    Job,
+    Location,
+    ScrapeParams,
+    Site,
+)
 from job_scout.scrapers import BaseScraper
 from job_scout.scrapers.constants import (
     GLASSDOOR_API_URL,
@@ -80,8 +87,12 @@ class GlassdoorScraper(BaseScraper):
             json=[{"operationName": "JobSearchQuery", "query": query, "variables": {}}],
             headers=headers,
         )
-        if resp is None or not getattr(resp, "is_success", resp.status_code < 300 if resp else False):
-            log.warning(f"Glassdoor API returned {resp.status_code if resp else 'None'}")
+        if resp is None or not getattr(
+            resp, "is_success", resp.status_code < 300 if resp else False
+        ):
+            log.warning(
+                f"Glassdoor API returned {resp.status_code if resp else 'None'}"
+            )
             return []
 
         try:
@@ -112,7 +123,9 @@ class GlassdoorScraper(BaseScraper):
                 return None
 
             title = header.get("jobTitleText", "")
-            company = header.get("employerNameFromSearch") or overview.get("name", "Unknown")
+            company = header.get("employerNameFromSearch") or overview.get(
+                "name", "Unknown"
+            )
             job_link = header.get("jobLink", "")
             if job_link and not job_link.startswith("http"):
                 job_link = f"{GLASSDOOR_BASE_URL}{job_link}"
@@ -140,7 +153,9 @@ class GlassdoorScraper(BaseScraper):
             age_in_days = header.get("ageInDays")
             if age_in_days is not None:
                 try:
-                    date_posted = (datetime.now() - timedelta(days=int(age_in_days))).date()
+                    date_posted = (
+                        datetime.now() - timedelta(days=int(age_in_days))
+                    ).date()
                 except (ValueError, TypeError):
                     pass
 
@@ -171,9 +186,15 @@ class GlassdoorScraper(BaseScraper):
         if pay_low is None and pay_high is None:
             return None
 
-        period_map = {"ANNUAL": CompInterval.YEARLY, "HOURLY": CompInterval.HOURLY,
-                      "MONTHLY": CompInterval.MONTHLY, "WEEKLY": CompInterval.WEEKLY}
-        interval = period_map.get(header.get("payPeriod", "").upper(), CompInterval.YEARLY)
+        period_map = {
+            "ANNUAL": CompInterval.YEARLY,
+            "HOURLY": CompInterval.HOURLY,
+            "MONTHLY": CompInterval.MONTHLY,
+            "WEEKLY": CompInterval.WEEKLY,
+        }
+        interval = period_map.get(
+            header.get("payPeriod", "").upper(), CompInterval.YEARLY
+        )
         currency = header.get("payCurrency", "USD")
 
         return Compensation(

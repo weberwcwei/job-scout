@@ -54,9 +54,9 @@ class TestConcurrentExecution:
 
         def worker(i):
             scraper = SlowScraper(cfg, delay=0.1)
-            return scraper.scrape(ScrapeParams(
-                search_term="test", location="US", results_wanted=5
-            ))
+            return scraper.scrape(
+                ScrapeParams(search_term="test", location="US", results_wanted=5)
+            )
 
         start = time.time()
         with ThreadPoolExecutor(max_workers=3) as pool:

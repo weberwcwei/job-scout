@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from job_scout.config import (
     DEFAULT_DB_PATH,
-    CONFIG_DIR,
+    DATA_DIR,
     XDG_CONFIG_PATH,
     AppConfig,
     load_config,
@@ -55,7 +55,8 @@ def _filter_alert_jobs(jobs: list, cfg) -> list:
     """Filter jobs by alert_states config: remote, state in allowed list, or unknown state."""
     allowed = cfg.scoring.alert_states
     return [
-        j for j in jobs
+        j
+        for j in jobs
         if j.location.is_remote or not allowed or j.location.state in (None, *allowed)
     ]
 
@@ -96,7 +97,6 @@ def scrape(
 
     def _run_one(task):
         s_name, s_term, s_loc = task
-        scraper = get_scraper(s_name, cfg.scraping)
         params = ScrapeParams(
             search_term=s_term,
             location=s_loc,
@@ -105,6 +105,7 @@ def scrape(
             distance_miles=cfg.search.distance_miles,
         )
         try:
+            scraper = get_scraper(s_name, cfg.scraping)
             jobs = scraper.scrape(params)
         except Exception as e:
             return s_name, s_term, s_loc, [], str(e)
@@ -232,8 +233,6 @@ def list_jobs(
             "green" if job.score >= 55 else ("yellow" if job.score >= 30 else "dim")
         )
         posted = job.date_posted.strftime("%-md ago") if job.date_posted else "?"
-        from datetime import date
-
         if job.date_posted:
             days = (date.today() - job.date_posted).days
             posted = f"{days}d" if days > 0 else "today"
@@ -311,12 +310,24 @@ def export(
         jobs = [j for j in jobs if j.date_posted is None or j.date_posted >= cutoff]
     else:
         if since is not None:
-            since_date = date.fromisoformat(since)
+            try:
+                since_date = date.fromisoformat(since)
+            except ValueError:
+                console.print(
+                    f"[red]Invalid date format: '{since}'. Use YYYY-MM-DD.[/red]"
+                )
+                raise typer.Exit(1)
             jobs = [
                 j for j in jobs if j.date_posted is None or j.date_posted >= since_date
             ]
         if until is not None:
-            until_date = date.fromisoformat(until)
+            try:
+                until_date = date.fromisoformat(until)
+            except ValueError:
+                console.print(
+                    f"[red]Invalid date format: '{until}'. Use YYYY-MM-DD.[/red]"
+                )
+                raise typer.Exit(1)
             jobs = [
                 j for j in jobs if j.date_posted is None or j.date_posted <= until_date
             ]
@@ -396,9 +407,15 @@ def reject(
     """Mark a job as rejected."""
     cfg = _get_config()
     db = _get_db(cfg)
+    job = db.get_job(job_id)
+    if not job:
+        console.print(f"[red]Job #{job_id} not found.[/red]")
+        db.close()
+        raise typer.Exit(1)
+
     db.update_status(job_id, "rejected", notes)
     db.close()
-    console.print(f"[dim]Job #{job_id} rejected.[/dim]")
+    console.print(f"[dim]Job #{job_id} ({job.company}: {job.title}) rejected.[/dim]")
 
 
 @app.command()
@@ -466,8 +483,12 @@ def schedule(
         for path in paths:
             console.print(f"  {path}")
         console.print(f"\nScrape: every {cfg.schedule.interval_hours} hours")
-        console.print(f"Digest: daily at {cfg.schedule.digest_hour:02d}:{cfg.schedule.digest_minute:02d}")
-        console.print(f"Report: daily at {cfg.schedule.report_hour:02d}:{cfg.schedule.report_minute:02d}")
+        console.print(
+            f"Digest: daily at {cfg.schedule.digest_hour:02d}:{cfg.schedule.digest_minute:02d}"
+        )
+        console.print(
+            f"Report: daily at {cfg.schedule.report_hour:02d}:{cfg.schedule.report_minute:02d}"
+        )
     elif uninstall_flag:
         scheduler.uninstall()
         console.print("[dim]All schedules removed.[/dim]")
@@ -475,7 +496,15 @@ def schedule(
         s = scheduler.status()
         log_dir = s.pop("log_dir", "")
         for name, info in s.items():
-            status_str = "[green]running[/green]" if info["running"] else ("[yellow]installed[/yellow]" if info["installed"] else "[dim]not installed[/dim]")
+            status_str = (
+                "[green]running[/green]"
+                if info["running"]
+                else (
+                    "[yellow]installed[/yellow]"
+                    if info["installed"]
+                    else "[dim]not installed[/dim]"
+                )
+            )
             console.print(f"  {name}: {status_str}")
             if info["installed"]:
                 console.print(f"    {info['plist_path']}")
@@ -523,7 +552,7 @@ def init(
         console.print(f"[green]Created {target}[/green]")
 
     # Init DB directory + file
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     db = _get_db()
     db.close()
 
@@ -602,7 +631,7 @@ def check():
     if errors:
         raise typer.Exit(1)
 
-    # 7. Test SMTP if email is enabled
+    # 6a. Test SMTP if email is enabled
     if cfg.notifications.email.enabled:
         ecfg = cfg.notifications.email
         if not ecfg.username or not ecfg.app_password:
@@ -620,7 +649,7 @@ def check():
             except Exception as e:
                 console.print(f" [red]FAILED[/red]: {e}")
 
-    # 6. Test Telegram if enabled
+    # 6b. Test Telegram if enabled
     if cfg.notifications.telegram.enabled:
         tcfg = cfg.notifications.telegram
         if not tcfg.bot_token or not tcfg.chat_id:
@@ -775,7 +804,9 @@ def digest():
     db = _get_db(cfg)
 
     cutoff = datetime.now() - timedelta(hours=24)
-    jobs = db.get_jobs(status="new", min_score=cfg.scoring.min_alert_score, since=cutoff, limit=None)
+    jobs = db.get_jobs(
+        status="new", min_score=cfg.scoring.min_alert_score, since=cutoff, limit=None
+    )
     jobs = _filter_alert_jobs(jobs, cfg)
     stats = db.get_alert_stats(score_threshold=cfg.scoring.min_alert_score)
     db.close()
@@ -802,7 +833,9 @@ def digest():
                 f"{loc_line}\n"
                 f"  {job.url}\n"
             )
-        lines.append(f"\n\U0001f4ca {stats['total_new']} unreviewed | {stats['scraped_24h']} scraped today")
+        lines.append(
+            f"\n\U0001f4ca {stats['total_new']} unreviewed | {stats['scraped_24h']} scraped today"
+        )
         if send_email(
             subject=f"job-scout digest: {len(jobs)} match(es)",
             body="\n".join(lines),
@@ -824,7 +857,9 @@ def digest():
                 f"*{job.score}* \\(kw:{kw}\\) \\| {id_tag}[{_esc_md(job.company)}: {_esc_md(job.title)}]({job.url})\n"
                 f"{loc_line}"
             )
-        tg_lines.append(f"\n\U0001f4ca {_esc_md(str(stats['total_new']))} unreviewed \\| {_esc_md(str(stats['scraped_24h']))} scraped today")
+        tg_lines.append(
+            f"\n\U0001f4ca {_esc_md(str(stats['total_new']))} unreviewed \\| {_esc_md(str(stats['scraped_24h']))} scraped today"
+        )
         if send_telegram(
             text="\n".join(tg_lines),
             cfg=cfg.notifications.telegram,
@@ -883,42 +918,54 @@ def report():
     ]
 
     if high:
-        lines.extend([
-            f"## High Match (score >= {threshold})",
-            "",
-            "| Score | Title | Company | Location | Comp | Link |",
-            "|-------|-------|---------|----------|------|------|",
-        ])
+        lines.extend(
+            [
+                f"## High Match (score >= {threshold})",
+                "",
+                "| Score | Title | Company | Location | Comp | Link |",
+                "|-------|-------|---------|----------|------|------|",
+            ]
+        )
         for j in high:
             salary = j.compensation.display_concise if j.compensation else ""
             loc = j.location.display
-            lines.append(f"| {j.score} | {j.title} | {j.company} | {loc} | {salary} | [apply]({j.url}) |")
+            lines.append(
+                f"| {j.score} | {j.title} | {j.company} | {loc} | {salary} | [apply]({j.url}) |"
+            )
         lines.append("")
 
     if medium:
-        lines.extend([
-            f"## Worth Review (40-{threshold - 1})",
-            "",
-            "| Score | Title | Company | Location | Comp | Link |",
-            "|-------|-------|---------|----------|------|------|",
-        ])
+        lines.extend(
+            [
+                f"## Worth Review (40-{threshold - 1})",
+                "",
+                "| Score | Title | Company | Location | Comp | Link |",
+                "|-------|-------|---------|----------|------|------|",
+            ]
+        )
         for j in medium:
             salary = j.compensation.display_concise if j.compensation else ""
             loc = j.location.display
-            lines.append(f"| {j.score} | {j.title} | {j.company} | {loc} | {salary} | [apply]({j.url}) |")
+            lines.append(
+                f"| {j.score} | {j.title} | {j.company} | {loc} | {salary} | [apply]({j.url}) |"
+            )
         if medium_total > 20:
             lines.append(f"*(showing top 20 of {medium_total})*")
         lines.append("")
 
     if trend:
-        lines.extend([
-            "## 7-Day Trend",
-            "",
-            f"| Date | Total | High (>={threshold}) | Medium (40-{threshold - 1}) |",
-            "|------|-------|-------------|----------------|",
-        ])
+        lines.extend(
+            [
+                "## 7-Day Trend",
+                "",
+                f"| Date | Total | High (>={threshold}) | Medium (40-{threshold - 1}) |",
+                "|------|-------|-------------|----------------|",
+            ]
+        )
         for row in trend:
-            lines.append(f"| {row['date']} | {row['total']} | {row['high']} | {row['medium']} |")
+            lines.append(
+                f"| {row['date']} | {row['total']} | {row['high']} | {row['medium']} |"
+            )
         lines.append("")
 
     report_path.write_text("\n".join(lines))

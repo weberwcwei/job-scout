@@ -29,7 +29,10 @@ class LinkedInScraper(BaseScraper):
         seconds_old = params.hours_old * 3600 if params.hours_old else None
 
         with self._make_client() as client:
-            while len(jobs) < params.results_wanted and start < self.config.max_pages * self.jobs_per_page:
+            while (
+                len(jobs) < params.results_wanted
+                and start < self.config.max_pages * self.jobs_per_page
+            ):
                 log.info(f"LinkedIn search page offset={start}")
                 query_params = {
                     "keywords": params.search_term,
@@ -67,9 +70,7 @@ class LinkedInScraper(BaseScraper):
 
         return jobs
 
-    def _parse_card(
-        self, card, client, fetch_description: bool = False
-    ) -> Job | None:
+    def _parse_card(self, card, client, fetch_description: bool = False) -> Job | None:
         href_tag = card.find("a", class_="base-card__full-link")
         if not href_tag or "href" not in href_tag.attrs:
             return None
@@ -99,7 +100,9 @@ class LinkedInScraper(BaseScraper):
                 dt_tag = metadata.find("time", class_="job-search-card__listdate--new")
             if dt_tag and "datetime" in dt_tag.attrs:
                 try:
-                    date_posted = datetime.strptime(dt_tag["datetime"], "%Y-%m-%d").date()
+                    date_posted = datetime.strptime(
+                        dt_tag["datetime"], "%Y-%m-%d"
+                    ).date()
                 except ValueError:
                     pass
 
@@ -107,7 +110,9 @@ class LinkedInScraper(BaseScraper):
         compensation = None
         salary_tag = card.find("span", class_="job-search-card__salary-info")
         if salary_tag:
-            compensation = self._parse_salary(salary_tag.get_text(separator=" ").strip())
+            compensation = self._parse_salary(
+                salary_tag.get_text(separator=" ").strip()
+            )
 
         # Description (optional, requires extra request)
         description = ""

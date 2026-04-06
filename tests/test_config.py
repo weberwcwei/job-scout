@@ -5,7 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from job_scout.config import AppConfig, ScrapingConfig, SearchConfig, TelegramConfig, resolve_config_path
+import pytest
+
+from job_scout.config import (
+    AppConfig,
+    ScrapingConfig,
+    SearchConfig,
+    TelegramConfig,
+    resolve_config_path,
+)
 
 
 class TestScrapingConfigDefaults:
@@ -122,8 +130,10 @@ class TestResolveConfigPath:
     def test_returns_xdg_path_when_neither_exists(self, tmp_path):
         missing = tmp_path / "nonexistent" / "config.yaml"
         cwd_missing = tmp_path / "also_nonexistent" / "config.yaml"
-        with patch("job_scout.config.XDG_CONFIG_PATH", missing), \
-             patch("job_scout.config.DEFAULT_CONFIG_PATH", cwd_missing):
+        with (
+            patch("job_scout.config.XDG_CONFIG_PATH", missing),
+            patch("job_scout.config.DEFAULT_CONFIG_PATH", cwd_missing),
+        ):
             assert resolve_config_path() == missing
 
     def test_xdg_takes_precedence_over_cwd(self, tmp_path, monkeypatch):
@@ -141,6 +151,7 @@ class TestResolveConfigPath:
         # Re-import to pick up env change
         import importlib
         import job_scout.config as cfg_mod
+
         importlib.reload(cfg_mod)
         assert cfg_mod.XDG_CONFIG_DIR == tmp_path / "job-scout"
         # Clean up: reload again without the env var to restore
@@ -152,6 +163,7 @@ class TestScheduleConfigFields:
     def test_defaults(self):
         """New schedule fields have correct defaults."""
         from job_scout.config import ScheduleConfig
+
         s = ScheduleConfig()
         assert s.interval_hours == 6
         assert s.digest_hour == 9
@@ -162,7 +174,14 @@ class TestScheduleConfigFields:
     def test_custom_values(self):
         """Custom schedule values parse correctly."""
         from job_scout.config import ScheduleConfig
-        s = ScheduleConfig(interval_hours=4, digest_hour=10, digest_minute=30, report_hour=7, report_minute=0)
+
+        s = ScheduleConfig(
+            interval_hours=4,
+            digest_hour=10,
+            digest_minute=30,
+            report_hour=7,
+            report_minute=0,
+        )
         assert s.digest_hour == 10
         assert s.digest_minute == 30
         assert s.report_hour == 7
@@ -170,13 +189,15 @@ class TestScheduleConfigFields:
     def test_start_hour_end_hour_removed(self):
         """start_hour and end_hour no longer exist as fields."""
         from job_scout.config import ScheduleConfig
+
         s = ScheduleConfig()
-        assert not hasattr(s, 'start_hour')
-        assert not hasattr(s, 'end_hour')
+        assert not hasattr(s, "start_hour")
+        assert not hasattr(s, "end_hour")
 
     def test_extra_fields_ignored(self):
         """Existing configs with start_hour/end_hour don't break (Pydantic ignores extras)."""
         from job_scout.config import ScheduleConfig
+
         # This simulates an old config.yaml that still has start_hour/end_hour
         s = ScheduleConfig(interval_hours=6, start_hour=8, end_hour=23)
         assert s.interval_hours == 6
@@ -187,9 +208,15 @@ class TestAppConfigReportDir:
         """AppConfig has report_dir with correct default."""
         from pathlib import Path
         from job_scout.config import AppConfig
+
         # Need minimal valid config
         cfg = AppConfig(
-            profile={"name": "Test", "target_title": "SWE", "keywords": {}, "target_companies": {}},
+            profile={
+                "name": "Test",
+                "target_title": "SWE",
+                "keywords": {},
+                "target_companies": {},
+            },
             search={"terms": ["python"], "locations": ["Remote"]},
         )
         expected = Path.home() / ".local" / "share" / "job-scout" / "reports"
@@ -199,12 +226,107 @@ class TestAppConfigReportDir:
         """report_dir can be overridden."""
         from pathlib import Path
         from job_scout.config import AppConfig
+
         cfg = AppConfig(
-            profile={"name": "Test", "target_title": "SWE", "keywords": {}, "target_companies": {}},
+            profile={
+                "name": "Test",
+                "target_title": "SWE",
+                "keywords": {},
+                "target_companies": {},
+            },
             search={"terms": ["python"], "locations": ["Remote"]},
             report_dir="/tmp/my-reports",
         )
         assert cfg.report_dir == Path("/tmp/my-reports")
+
+
+class TestLoadConfig:
+    def test_missing_file_raises_system_exit(self, tmp_path):
+        from job_scout.config import load_config
+
+        missing = tmp_path / "nonexistent.yaml"
+        with pytest.raises(SystemExit, match="Config not found"):
+            load_config(missing)
+
+    def test_valid_file_loads(self, tmp_path):
+        from job_scout.config import load_config
+        import yaml
+
+        config_file = tmp_path / "config.yaml"
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+        }
+        config_file.write_text(yaml.dump(raw))
+        cfg = load_config(config_file)
+        assert cfg.profile.name == "Test"
+
+    def test_invalid_config_raises_system_exit(self, tmp_path):
+        from job_scout.config import load_config
+        import yaml
+
+        config_file = tmp_path / "config.yaml"
+        # Missing required 'search' field
+        raw = {"profile": {"name": "Test", "target_title": "Engineer"}}
+        config_file.write_text(yaml.dump(raw))
+        with pytest.raises(SystemExit, match="Invalid config"):
+            load_config(config_file)
+
+
+class TestMaxAchievableScore:
+    def test_full_config(self):
+        from job_scout.config import _max_achievable_score
+
+        cfg = AppConfig(
+            profile={
+                "name": "Test",
+                "target_title": "SWE",
+                "keywords": {"critical": ["python"]},
+                "target_companies": {"tier1": ["Google"]},
+                "title_signals": [{"pattern": "engineer", "points": 15}],
+            },
+            search={"terms": ["python"], "locations": ["US"]},
+        )
+        # 10 (recency) + 55 (keywords) + 15 (company) + 20 (title) = 100
+        assert _max_achievable_score(cfg) == 100
+
+    def test_no_keywords(self):
+        from job_scout.config import _max_achievable_score
+
+        cfg = AppConfig(
+            profile={"name": "Test", "target_title": "SWE"},
+            search={"terms": ["python"], "locations": ["US"]},
+        )
+        # 10 (recency) only
+        assert _max_achievable_score(cfg) == 10
+
+    def test_strong_only_no_keywords(self):
+        from job_scout.config import _max_achievable_score
+
+        cfg = AppConfig(
+            profile={
+                "name": "Test",
+                "target_title": "SWE",
+                "keywords": {"strong": ["python"]},
+            },
+            search={"terms": ["python"], "locations": ["US"]},
+        )
+        # strong-only without critical: keyword contribution = 0
+        assert _max_achievable_score(cfg) == 10
+
+    def test_moderate_weak_no_critical(self):
+        from job_scout.config import _max_achievable_score
+
+        cfg = AppConfig(
+            profile={
+                "name": "Test",
+                "target_title": "SWE",
+                "keywords": {"moderate": ["aws"], "weak": ["docker"]},
+            },
+            search={"terms": ["python"], "locations": ["US"]},
+        )
+        # 10 (recency) + 10 (capped keywords) = 20
+        assert _max_achievable_score(cfg) == 20
 
 
 class TestDbPath:

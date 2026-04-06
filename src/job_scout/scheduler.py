@@ -68,14 +68,20 @@ def generate_plists(
             label=PLIST_LABELS["digest"],
             command_args=[python_path, "-m", "job_scout", "digest"],
             schedule_key="StartCalendarInterval",
-            schedule_value={"Hour": schedule.digest_hour, "Minute": schedule.digest_minute},
+            schedule_value={
+                "Hour": schedule.digest_hour,
+                "Minute": schedule.digest_minute,
+            },
             log_prefix="digest",
         ),
         PLIST_LABELS["report"]: _generate_plist(
             label=PLIST_LABELS["report"],
             command_args=[python_path, "-m", "job_scout", "report"],
             schedule_key="StartCalendarInterval",
-            schedule_value={"Hour": schedule.report_hour, "Minute": schedule.report_minute},
+            schedule_value={
+                "Hour": schedule.report_hour,
+                "Minute": schedule.report_minute,
+            },
             log_prefix="report",
         ),
     }

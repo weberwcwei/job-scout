@@ -45,7 +45,9 @@ class TestResponseAdapter:
 
 class TestTLSClientAdapter:
     def test_context_manager(self):
-        with patch("job_scout.scrapers.tls.TLSClientAdapter.__init__", return_value=None):
+        with patch(
+            "job_scout.scrapers.tls.TLSClientAdapter.__init__", return_value=None
+        ):
             adapter = TLSClientAdapter.__new__(TLSClientAdapter)
             adapter._session = MagicMock()
             with adapter as client:
@@ -53,7 +55,9 @@ class TestTLSClientAdapter:
             adapter._session.close.assert_called_once()
 
     def test_get_wraps_exception_as_httpx_error(self):
-        with patch("job_scout.scrapers.tls.TLSClientAdapter.__init__", return_value=None):
+        with patch(
+            "job_scout.scrapers.tls.TLSClientAdapter.__init__", return_value=None
+        ):
             adapter = TLSClientAdapter.__new__(TLSClientAdapter)
             adapter._session = MagicMock()
             adapter._session.get.side_effect = Exception("connection failed")
@@ -61,7 +65,9 @@ class TestTLSClientAdapter:
                 adapter.get("http://example.com")
 
     def test_post_wraps_exception_as_httpx_error(self):
-        with patch("job_scout.scrapers.tls.TLSClientAdapter.__init__", return_value=None):
+        with patch(
+            "job_scout.scrapers.tls.TLSClientAdapter.__init__", return_value=None
+        ):
             adapter = TLSClientAdapter.__new__(TLSClientAdapter)
             adapter._session = MagicMock()
             adapter._session.post.side_effect = Exception("timeout")

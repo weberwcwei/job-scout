@@ -12,9 +12,15 @@ from job_scout.models import Job
 class JobScorer:
     def __init__(self, profile: ProfileConfig):
         self.profile = profile
-        self._title_breakers = [re.compile(p) for p in profile.dealbreakers.title_patterns]
-        self._company_breakers = [re.compile(p) for p in profile.dealbreakers.company_patterns]
-        self._desc_breakers = [re.compile(p) for p in profile.dealbreakers.description_patterns]
+        self._title_breakers = [
+            re.compile(p) for p in profile.dealbreakers.title_patterns
+        ]
+        self._company_breakers = [
+            re.compile(p) for p in profile.dealbreakers.company_patterns
+        ]
+        self._desc_breakers = [
+            re.compile(p) for p in profile.dealbreakers.description_patterns
+        ]
 
     def score(self, job: Job) -> tuple[int, dict]:
         """Score a job 0-100. Returns (total, breakdown). 0 = dealbreaker."""
@@ -43,7 +49,9 @@ class JobScorer:
             return True
         if any(p.search(job.company) for p in self._company_breakers):
             return True
-        if job.description and any(p.search(job.description) for p in self._desc_breakers):
+        if job.description and any(
+            p.search(job.description) for p in self._desc_breakers
+        ):
             return True
         return False
 
@@ -100,4 +108,3 @@ class JobScorer:
         if days_old <= 14:
             return 3
         return 1
-
