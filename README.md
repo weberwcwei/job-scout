@@ -22,6 +22,7 @@
 ## Changelog
 
 **2026-04-06**
+- New notification channels: **Slack** and **Discord** webhooks — just paste a webhook URL, no API keys needed
 - New `job-scout report` command — generates a daily markdown report with scored job tables and 7-day trend
 - New `job-scout export` command — export jobs to CSV or JSON with all the same filters as `list`
 - `digest` now includes a stats footer (unreviewed count, scraped today) and concise salary format
@@ -33,7 +34,7 @@
 
 ---
 
-job-scout scrapes 6 job boards every few hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram or email. Free, no API keys, runs on your Mac.
+job-scout scrapes 6 job boards every few hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram, Slack, Discord, or email. Free, no API keys, runs on your Mac.
 
 ### Why job-scout?
 
@@ -187,7 +188,29 @@ Now here is my resume:
 
 ### Step 3: Set up notifications (optional)
 
-**Telegram** (recommended):
+Pick any channel — or use several at once.
+
+**Slack** (easiest):
+1. Create an [Incoming Webhook](https://api.slack.com/messaging/webhooks) for your workspace
+2. Add to `config.yaml`:
+   ```yaml
+   notifications:
+     slack:
+       enabled: true
+       webhook_url: "https://hooks.slack.com/services/T.../B.../..."
+   ```
+
+**Discord**:
+1. In your Discord channel, go to Settings → Integrations → Webhooks → New Webhook → Copy URL
+2. Add to `config.yaml`:
+   ```yaml
+   notifications:
+     discord:
+       enabled: true
+       webhook_url: "https://discord.com/api/webhooks/ID/TOKEN"
+   ```
+
+**Telegram**:
 1. Message [@BotFather](https://t.me/BotFather) on Telegram → `/newbot` → copy the bot token
 2. Message [@userinfobot](https://t.me/userinfobot) → copy your chat ID
 3. Uncomment the `notifications.telegram` section in `config.yaml` and paste both values
@@ -224,7 +247,7 @@ job-scout export -o jobs.csv   # export jobs to CSV or JSON
 
 Once scheduled, job-scout runs silently in the background. Your day looks like this:
 
-1. **Morning** — Check Telegram. See 3 new matches scored 70+.
+1. **Morning** — Check your notifications. See 3 new matches scored 70+.
 2. **Spot a good one** — Run `job-scout view 142` for full details.
 3. **Apply on the site** — Then `job-scout apply 142` to log it.
 4. **End of week** — Run `job-scout stats` to see how your search is going.
