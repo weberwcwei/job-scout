@@ -8,13 +8,23 @@ from unittest.mock import MagicMock, patch
 import httpx
 
 from job_scout.config import (
+    DiscordConfig,
     EmailConfig,
     MacOSNotifyConfig,
     NotificationsConfig,
+    SlackConfig,
     TelegramConfig,
 )
 from job_scout.models import Compensation, CompInterval, Job, Location, Site
-from job_scout.notify import Notifier, _esc_md, send_telegram
+from job_scout.notify import (
+    Notifier,
+    _esc_discord,
+    _esc_md,
+    _esc_slack,
+    send_discord,
+    send_slack,
+    send_telegram,
+)
 
 
 def _make_job(score=60, company="TestCo", title="ML Engineer", **kwargs):
@@ -129,6 +139,8 @@ class TestNotifierTelegram:
                 to_address="a@b.com",
             ),
             telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
+            slack=SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"),
+            discord=DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"),
         )
         notifier = Notifier(cfg)
 
@@ -141,8 +153,8 @@ class TestNotifierTelegram:
         mock_subprocess.assert_called_once()
         # Email
         mock_smtp.assert_called_once()
-        # Telegram
-        mock_post.assert_called_once()
+        # Telegram + Slack + Discord = 3 httpx.post calls
+        assert mock_post.call_count == 3
 
     @patch("job_scout.notify.httpx.post")
     @patch("subprocess.run")
@@ -378,3 +390,228 @@ class TestEscMd:
 
     def test_empty_string(self):
         assert _esc_md("") == ""
+
+
+class TestEscSlack:
+    def test_escapes_ampersand(self):
+        assert _esc_slack("A & B") == "A &amp; B"
+
+    def test_escapes_angle_brackets(self):
+        assert _esc_slack("<tag>") == "&lt;tag&gt;"
+
+    def test_no_escaping_needed(self):
+        assert _esc_slack("hello world") == "hello world"
+
+    def test_empty_string(self):
+        assert _esc_slack("") == ""
+
+
+class TestEscDiscord:
+    def test_escapes_asterisk(self):
+        assert _esc_discord("hello*world") == r"hello\*world"
+
+    def test_escapes_underscore(self):
+        assert _esc_discord("hello_world") == r"hello\_world"
+
+    def test_escapes_tilde(self):
+        assert _esc_discord("~strike~") == r"\~strike\~"
+
+    def test_escapes_backtick(self):
+        assert _esc_discord("`code`") == r"\`code\`"
+
+    def test_escapes_pipe(self):
+        assert _esc_discord("a|b") == r"a\|b"
+
+    def test_escapes_backslash(self):
+        assert _esc_discord(r"path\to") == r"path\\to"
+
+    def test_empty_string(self):
+        assert _esc_discord("") == ""
+
+
+class TestSendSlack:
+    @patch("job_scout.notify.httpx.post")
+    def test_sends_message(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x")
+
+        result = send_slack(text="hello", cfg=cfg)
+
+        assert result is True
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        assert call_kwargs.args[0] == "https://hooks.slack.com/services/T/B/x"
+        assert call_kwargs.kwargs["json"] == {"text": "hello"}
+
+    @patch("job_scout.notify.httpx.post")
+    def test_empty_url_returns_false(self, mock_post):
+        cfg = SlackConfig(enabled=True, webhook_url="")
+        result = send_slack(text="hello", cfg=cfg)
+        assert result is False
+        mock_post.assert_not_called()
+
+    @patch("job_scout.notify.httpx.post")
+    def test_api_error_returns_false(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=400, text="Bad Request")
+        cfg = SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x")
+        result = send_slack(text="hello", cfg=cfg)
+        assert result is False
+
+    @patch("job_scout.notify.httpx.post")
+    def test_network_error_returns_false(self, mock_post):
+        mock_post.side_effect = httpx.ConnectError("timeout")
+        cfg = SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x")
+        result = send_slack(text="hello", cfg=cfg)
+        assert result is False
+
+
+class TestSendDiscord:
+    @patch("job_scout.notify.httpx.post")
+    def test_sends_message_204(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=204)
+        cfg = DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc")
+
+        result = send_discord(text="hello", cfg=cfg)
+
+        assert result is True
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        assert call_kwargs.args[0] == "https://discord.com/api/webhooks/123/abc"
+        assert call_kwargs.kwargs["json"] == {"content": "hello"}
+
+    @patch("job_scout.notify.httpx.post")
+    def test_empty_url_returns_false(self, mock_post):
+        cfg = DiscordConfig(enabled=True, webhook_url="")
+        result = send_discord(text="hello", cfg=cfg)
+        assert result is False
+        mock_post.assert_not_called()
+
+    @patch("job_scout.notify.httpx.post")
+    def test_api_error_returns_false(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=400, text="Bad Request")
+        cfg = DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc")
+        result = send_discord(text="hello", cfg=cfg)
+        assert result is False
+
+    @patch("job_scout.notify.httpx.post")
+    def test_network_error_returns_false(self, mock_post):
+        mock_post.side_effect = httpx.ConnectError("timeout")
+        cfg = DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc")
+        result = send_discord(text="hello", cfg=cfg)
+        assert result is False
+
+
+class TestNotifierSlack:
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_notify_slack_sends_for_jobs(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+            slack=SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"),
+            discord=DiscordConfig(enabled=False),
+        )
+        notifier = Notifier(cfg)
+        jobs = [_make_job(score=70), _make_job(score=60, company="OtherCo")]
+
+        notifier.notify_new_jobs(jobs)
+
+        mock_post.assert_called_once()
+        payload = mock_post.call_args.kwargs["json"]
+        assert "text" in payload
+        assert "70" in payload["text"]
+        assert "OtherCo" in payload["text"]
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_slack_disabled_skips(self, mock_subprocess, mock_post):
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+            slack=SlackConfig(enabled=False),
+            discord=DiscordConfig(enabled=False),
+        )
+        notifier = Notifier(cfg)
+        notifier.notify_new_jobs([_make_job()])
+        mock_post.assert_not_called()
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_slack_message_format(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+            slack=SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"),
+            discord=DiscordConfig(enabled=False),
+        )
+        notifier = Notifier(cfg)
+        notifier.notify_new_jobs([_make_job(score=75, company="NVIDIA", title="ML Eng")])
+
+        text = mock_post.call_args.kwargs["json"]["text"]
+        assert "75" in text
+        assert "NVIDIA" in text
+        assert "ML Eng" in text
+        assert "example.com" in text
+
+
+class TestNotifierDiscord:
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_notify_discord_sends_for_jobs(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=204)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+            slack=SlackConfig(enabled=False),
+            discord=DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"),
+        )
+        notifier = Notifier(cfg)
+        jobs = [_make_job(score=70), _make_job(score=60, company="OtherCo")]
+
+        notifier.notify_new_jobs(jobs)
+
+        mock_post.assert_called_once()
+        payload = mock_post.call_args.kwargs["json"]
+        assert "content" in payload
+        assert "70" in payload["content"]
+        assert "OtherCo" in payload["content"]
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_discord_disabled_skips(self, mock_subprocess, mock_post):
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+            slack=SlackConfig(enabled=False),
+            discord=DiscordConfig(enabled=False),
+        )
+        notifier = Notifier(cfg)
+        notifier.notify_new_jobs([_make_job()])
+        mock_post.assert_not_called()
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_discord_message_format(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=204)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+            slack=SlackConfig(enabled=False),
+            discord=DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"),
+        )
+        notifier = Notifier(cfg)
+        notifier.notify_new_jobs([_make_job(score=75, company="NVIDIA", title="ML Eng")])
+
+        text = mock_post.call_args.kwargs["json"]["content"]
+        assert "75" in text
+        assert "NVIDIA" in text
+        assert "ML Eng" in text
+        assert "example.com" in text

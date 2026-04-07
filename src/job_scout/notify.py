@@ -10,7 +10,7 @@ from email.mime.text import MIMEText
 
 import httpx
 
-from job_scout.config import NotificationsConfig
+from job_scout.config import DiscordConfig, NotificationsConfig, SlackConfig
 from job_scout.models import Job
 
 log = logging.getLogger("job_scout.notify")
@@ -29,6 +29,10 @@ class Notifier:
             self._notify_email(jobs)
         if self.config.telegram.enabled:
             self._notify_telegram(jobs)
+        if self.config.slack.enabled:
+            self._notify_slack(jobs)
+        if self.config.discord.enabled:
+            self._notify_discord(jobs)
 
     def _notify_macos(self, jobs: list[Job]) -> None:
         if len(jobs) == 1:
@@ -105,6 +109,52 @@ class Notifier:
 
         send_telegram(text=text, cfg=cfg)
 
+    def _notify_slack(self, jobs: list[Job]) -> None:
+        cfg = self.config.slack
+        if not cfg.webhook_url:
+            log.warning("Slack webhook_url not configured")
+            return
+
+        lines = [f"*job-scout* — {len(jobs)} new match(es)\n"]
+        for job in jobs:
+            salary = job.compensation.display_concise if job.compensation else ""
+            kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            id_tag = f"#{job.id} " if job.id else ""
+            loc_line = f"  {_esc_slack(job.location.display)}"
+            if salary:
+                loc_line += f" | {_esc_slack(salary)}"
+            lines.append(
+                f"*{_esc_slack(job.company)}: {_esc_slack(job.title)}*\n"
+                f"Score: {job.score} | keywords: {kw} | {id_tag}{loc_line}\n"
+                f"{job.url}"
+            )
+        text = "\n".join(lines)
+
+        send_slack(text=text, cfg=cfg)
+
+    def _notify_discord(self, jobs: list[Job]) -> None:
+        cfg = self.config.discord
+        if not cfg.webhook_url:
+            log.warning("Discord webhook_url not configured")
+            return
+
+        lines = [f"**job-scout** — {len(jobs)} new match(es)\n"]
+        for job in jobs:
+            salary = job.compensation.display_concise if job.compensation else ""
+            kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            id_tag = f"#{job.id} " if job.id else ""
+            loc_line = f"  {_esc_discord(job.location.display)}"
+            if salary:
+                loc_line += f" | {_esc_discord(salary)}"
+            lines.append(
+                f"**{_esc_discord(job.company)}: {_esc_discord(job.title)}**\n"
+                f"Score: {job.score} | keywords: {kw} | {id_tag}{loc_line}\n"
+                f"{job.url}"
+            )
+        text = "\n".join(lines)
+
+        send_discord(text=text, cfg=cfg)
+
 
 def send_telegram(text: str, cfg) -> bool:
     """Send a message via Telegram Bot API."""
@@ -176,3 +226,51 @@ def _esc_md(s: str) -> str:
     for ch in r"_*[]()~`>#+-=|{}.!":
         s = s.replace(ch, f"\\{ch}")
     return s
+
+
+def _esc_slack(s: str) -> str:
+    """Escape special characters for Slack mrkdwn."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _esc_discord(s: str) -> str:
+    """Escape special characters for Discord markdown."""
+    for ch in r"\*_~`|":
+        s = s.replace(ch, f"\\{ch}")
+    return s
+
+
+def send_slack(text: str, cfg: SlackConfig) -> bool:
+    """POST to Slack incoming webhook. Returns True on success."""
+    if not cfg.webhook_url:
+        log.error("Slack not configured (missing webhook_url)")
+        return False
+
+    try:
+        resp = httpx.post(cfg.webhook_url, json={"text": text}, timeout=10)
+        if 200 <= resp.status_code < 300:
+            log.info("Slack message sent")
+            return True
+        log.error(f"Slack webhook returned {resp.status_code}: {resp.text}")
+        return False
+    except Exception as e:
+        log.error(f"Slack notification failed: {e}")
+        return False
+
+
+def send_discord(text: str, cfg: DiscordConfig) -> bool:
+    """POST to Discord webhook. Returns True on success."""
+    if not cfg.webhook_url:
+        log.error("Discord not configured (missing webhook_url)")
+        return False
+
+    try:
+        resp = httpx.post(cfg.webhook_url, json={"content": text}, timeout=10)
+        if 200 <= resp.status_code < 300:
+            log.info("Discord message sent")
+            return True
+        log.error(f"Discord webhook returned {resp.status_code}: {resp.text}")
+        return False
+    except Exception as e:
+        log.error(f"Discord notification failed: {e}")
+        return False

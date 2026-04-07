@@ -91,6 +91,12 @@ notifications:
     enabled: false                # Telegram Bot API alerts
     bot_token: ""                 # get from @BotFather on Telegram
     chat_id: ""                   # your Telegram user/chat ID
+  slack:
+    enabled: false                # Slack incoming webhook alerts
+    webhook_url: ""               # https://hooks.slack.com/services/T.../B.../...
+  discord:
+    enabled: false                # Discord webhook alerts
+    webhook_url: ""               # https://discord.com/api/webhooks/ID/TOKEN
 
 schedule:
   interval_hours: 6               # run scraper every N hours
