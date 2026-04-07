@@ -1,4 +1,4 @@
-"""Notification system: macOS native + email + Telegram."""
+"""Notification system: macOS native + email + Telegram + Slack + Discord."""
 
 from __future__ import annotations
 
