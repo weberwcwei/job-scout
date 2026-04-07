@@ -13,6 +13,7 @@ from job_scout.config import (
     LOG_DIR,
     AppConfig,
     ScrapingConfig,
+    ScoringConfig,
     SearchConfig,
     TelegramConfig,
     _sanitize,
@@ -56,6 +57,36 @@ class TestProxyMigration:
     def test_proxy_ignored_when_proxies_present(self):
         cfg = ScrapingConfig(**{"proxy": "http://old", "proxies": ["http://new"]})
         assert cfg.proxies == ["http://new"]
+
+
+class TestScoringConfigAlertStates:
+    def test_full_name_normalized_to_abbreviation(self):
+        cfg = ScoringConfig(alert_states=["California", "New York"])
+        assert cfg.alert_states == ["CA", "NY"]
+
+    def test_abbreviation_passthrough(self):
+        cfg = ScoringConfig(alert_states=["CA", "TX"])
+        assert cfg.alert_states == ["CA", "TX"]
+
+    def test_lowercase_code_uppercased(self):
+        cfg = ScoringConfig(alert_states=["ca"])
+        assert cfg.alert_states == ["CA"]
+
+    def test_mixed_formats(self):
+        cfg = ScoringConfig(alert_states=["California", "TX", "new york"])
+        assert cfg.alert_states == ["CA", "TX", "NY"]
+
+    def test_empty_list(self):
+        cfg = ScoringConfig(alert_states=[])
+        assert cfg.alert_states == []
+
+    def test_unknown_passthrough(self):
+        cfg = ScoringConfig(alert_states=["Ontario"])
+        assert cfg.alert_states == ["Ontario"]
+
+    def test_whitespace_stripped(self):
+        cfg = ScoringConfig(alert_states=["  CA  ", " California "])
+        assert cfg.alert_states == ["CA", "CA"]
 
 
 class TestSearchConfigDefaults:

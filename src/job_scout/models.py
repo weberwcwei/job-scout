@@ -6,7 +6,7 @@ import hashlib
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 class Site(str, Enum):
@@ -69,11 +69,174 @@ class Compensation(BaseModel):
         return "-".join(parts)
 
 
+# --- Location normalization lookups ---
+
+US_STATES: dict[str, str] = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+    "district of columbia": "DC",
+    "puerto rico": "PR",
+    "guam": "GU",
+    "us virgin islands": "VI",
+    "american samoa": "AS",
+    "northern mariana islands": "MP",
+}
+
+_STATE_CODES: set[str] = set(US_STATES.values())
+
+COUNTRIES: dict[str, str] = {
+    "united states": "US",
+    "united states of america": "US",
+    "usa": "US",
+    "canada": "CA",
+    "united kingdom": "GB",
+    "uk": "GB",
+    "australia": "AU",
+    "germany": "DE",
+    "france": "FR",
+    "india": "IN",
+    "japan": "JP",
+    "china": "CN",
+    "brazil": "BR",
+    "mexico": "MX",
+    "spain": "ES",
+    "italy": "IT",
+    "netherlands": "NL",
+    "sweden": "SE",
+    "switzerland": "CH",
+    "singapore": "SG",
+    "ireland": "IE",
+    "israel": "IL",
+    "south korea": "KR",
+    "new zealand": "NZ",
+    "united arab emirates": "AE",
+    "uae": "AE",
+    "saudi arabia": "SA",
+    "qatar": "QA",
+    "bahrain": "BH",
+    "kuwait": "KW",
+    "oman": "OM",
+    "jordan": "JO",
+    "egypt": "EG",
+    "lebanon": "LB",
+    "pakistan": "PK",
+    "georgia": "GE",
+}
+
+_COUNTRY_CODES: set[str] = set(COUNTRIES.values())
+
+
 class Location(BaseModel):
     city: str | None = None
     state: str | None = None
     country: str | None = "US"
     is_remote: bool = False
+
+    @model_validator(mode="after")
+    def _normalize(self) -> Location:
+        # Rule 1: Strip whitespace; empty/whitespace-only → None
+        if self.city is not None:
+            self.city = self.city.strip() or None
+        if self.state is not None:
+            self.state = self.state.strip() or None
+        if self.country is not None:
+            self.country = self.country.strip() or None
+
+        # Rule 2: "Remote" in city when is_remote is already set
+        if self.city and self.city.lower() == "remote" and self.is_remote:
+            self.city = None
+
+        # Rules 3-5: Field reclassification (order matters)
+        # Rule 4 first: shifted fields (city=state_name, state=country_name)
+        if (
+            self.city
+            and self.state
+            and self.city.lower() in US_STATES
+            and self.state.lower() in COUNTRIES
+        ):
+            self.country = COUNTRIES[self.state.lower()]
+            self.state = US_STATES[self.city.lower()]
+            self.city = None
+        else:
+            # Rule 3: Country name in city field (only when state is None)
+            if self.city and self.state is None and self.city.lower() in COUNTRIES:
+                self.country = COUNTRIES[self.city.lower()]
+                self.city = None
+
+            # Rule 5: Country name in state field (skip if also a US state name)
+            if (
+                self.state
+                and self.state.lower() in COUNTRIES
+                and self.state.lower() not in US_STATES
+            ):
+                self.country = COUNTRIES[self.state.lower()]
+                self.state = None
+
+        # Rule 6: Normalize state → 2-letter abbreviation
+        if self.state:
+            state_lower = self.state.lower()
+            if state_lower in US_STATES:
+                self.state = US_STATES[state_lower]
+            elif self.state.upper() in _STATE_CODES:
+                self.state = self.state.upper()
+
+        # Rule 7: Normalize country → 2-letter code
+        if self.country:
+            country_lower = self.country.lower()
+            if country_lower in COUNTRIES:
+                self.country = COUNTRIES[country_lower]
+            elif self.country.upper() in _COUNTRY_CODES:
+                self.country = self.country.upper()
+
+        return self
 
     @computed_field
     @property

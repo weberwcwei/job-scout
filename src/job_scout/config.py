@@ -87,6 +87,22 @@ class ScoringConfig(BaseModel):
     min_display_score: int = 20
     alert_states: list[str] = []
 
+    @model_validator(mode="after")
+    def _normalize_alert_states(self) -> ScoringConfig:
+        from job_scout.models import US_STATES, _STATE_CODES
+
+        normalized: list[str] = []
+        for s in self.alert_states:
+            lower = s.strip().lower()
+            if lower in US_STATES:
+                normalized.append(US_STATES[lower])
+            elif s.strip().upper() in _STATE_CODES:
+                normalized.append(s.strip().upper())
+            else:
+                normalized.append(s.strip())
+        self.alert_states = normalized
+        return self
+
 
 class MacOSNotifyConfig(BaseModel):
     enabled: bool = True

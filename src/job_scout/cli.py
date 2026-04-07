@@ -28,7 +28,7 @@ from job_scout.config import (
 )
 from job_scout.db import JobDB
 from job_scout.export import write_csv, write_json
-from job_scout.models import ScrapeParams, ScrapeRun, Site
+from job_scout.models import Location, ScrapeParams, ScrapeRun, Site
 from job_scout.notify import Notifier
 from job_scout.scorer import JobScorer
 from job_scout.scrapers import get_scraper
@@ -1113,6 +1113,83 @@ def report():
 
     report_path.write_text("\n".join(lines))
     console.print(f"[green]Report saved to {report_path}[/green]")
+
+
+@app.command("fix-locations")
+def fix_locations():
+    """Normalize location fields in existing DB rows."""
+    cfg = _get_config()
+    db = _get_db(cfg)
+
+    rows = db.conn.execute(
+        "SELECT id, city, state, country, is_remote FROM jobs"
+    ).fetchall()
+
+    counts = {
+        "country_from_city": 0,
+        "fields_shifted": 0,
+        "country_from_state": 0,
+        "state_abbreviated": 0,
+        "country_normalized": 0,
+        "remote_cleared": 0,
+    }
+    updated = 0
+
+    for row in rows:
+        old_city, old_state, old_country = row["city"], row["state"], row["country"]
+        loc = Location(
+            city=old_city,
+            state=old_state,
+            country=old_country,
+            is_remote=bool(row["is_remote"]),
+        )
+
+        if (
+            loc.city == old_city
+            and loc.state == old_state
+            and loc.country == old_country
+        ):
+            continue
+
+        # Categorize the primary change
+        if old_city and old_city.lower() == "remote" and loc.city is None:
+            counts["remote_cleared"] += 1
+        elif old_city and loc.city is None and loc.state != old_state:
+            counts["fields_shifted"] += 1
+        elif old_city and loc.city is None:
+            counts["country_from_city"] += 1
+        elif old_state and loc.state is None:
+            counts["country_from_state"] += 1
+        elif old_state and loc.state != old_state:
+            counts["state_abbreviated"] += 1
+        elif old_country and loc.country != old_country:
+            counts["country_normalized"] += 1
+
+        db.conn.execute(
+            "UPDATE jobs SET city = ?, state = ?, country = ?, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (loc.city, loc.state, loc.country, row["id"]),
+        )
+        updated += 1
+
+    db.conn.commit()
+    db.close()
+
+    if not updated:
+        console.print("No location fixes needed.")
+        return
+
+    console.print(f"[green]Fixed {updated} jobs:[/green]")
+    for label, count in [
+        ("country moved out of city field", counts["country_from_city"]),
+        ("fields shifted (state→city, country→state)", counts["fields_shifted"]),
+        ("country moved out of state field", counts["country_from_state"]),
+        ("state normalized to abbreviation", counts["state_abbreviated"]),
+        ("country normalized to code", counts["country_normalized"]),
+        ("redundant 'Remote' city cleared", counts["remote_cleared"]),
+    ]:
+        if count:
+            console.print(f"  {label}: {count}")
 
 
 @app.callback()
