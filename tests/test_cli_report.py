@@ -6,7 +6,7 @@ from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 
-from job_scout.config import AppConfig, ScoringConfig
+from job_scout.config import AppConfig, NotificationsConfig, ScoringConfig
 from job_scout.db import JobDB
 from job_scout.models import Compensation, CompInterval, Job, Location, Site
 
@@ -40,6 +40,7 @@ def _mock_cfg(db_path, report_dir):
     mock._config_path = None
     mock.config_name = None
     mock.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
+    mock.notifications = NotificationsConfig()
     mock.report_dir = report_dir
     return mock
 

@@ -1114,6 +1114,27 @@ def report():
     report_path.write_text("\n".join(lines))
     console.print(f"[green]Report saved to {report_path}[/green]")
 
+    if cfg.notifications.email.enabled:
+        from job_scout.notify import send_email
+
+        prefix = (
+            f"job-scout ({profile_name})"
+            if profile_name != "default"
+            else "job-scout"
+        )
+        summary = (
+            f"High: {len(high)}, Worth review: {len(medium)}, "
+            f"Scraped (24h): {stats['scraped_24h']}"
+        )
+        ok = send_email(
+            subject=f"{prefix} — Daily Report {now.strftime('%Y-%m-%d')}",
+            body=summary,
+            cfg=cfg.notifications.email,
+            attachment=report_path,
+        )
+        if ok:
+            console.print("[green]Report emailed.[/green]")
+
 
 @app.command("fix-locations")
 def fix_locations():

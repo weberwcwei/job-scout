@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 import smtplib
 import subprocess
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email import encoders
+from pathlib import Path
 
 import httpx
 
@@ -209,19 +212,30 @@ def send_telegram(text: str, cfg) -> bool:
         return False
 
 
-def send_email(subject: str, body: str, cfg) -> bool:
-    """Send a plain-text email via Gmail SMTP."""
+def send_email(
+    subject: str, body: str, cfg, attachment: Path | None = None
+) -> bool:
+    """Send a plain-text email via Gmail SMTP, optionally with a file attachment."""
     if not cfg.username or not cfg.app_password or not cfg.to_address:
         log.error(
             "Email not configured (missing username, app_password, or to_address)"
         )
         return False
 
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart("mixed" if attachment else "alternative")
     msg["Subject"] = subject
     msg["From"] = cfg.username
     msg["To"] = cfg.to_address
     msg.attach(MIMEText(body, "plain"))
+
+    if attachment and attachment.exists():
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(attachment.read_bytes())
+        encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition", f"attachment; filename={attachment.name}"
+        )
+        msg.attach(part)
 
     smtp = None
     try:
