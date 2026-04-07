@@ -21,6 +21,11 @@
 
 ## Changelog
 
+**2026-04-07**
+- **Location normalization**: auto-corrects scraped location data — shifted fields, state abbreviation, country codes, redundant "Remote" city
+- New `job-scout fix-locations` command — back-fixes existing DB rows
+- Config `alert_states` now accepts full names ("California") or abbreviations ("CA") interchangeably
+
 **2026-04-06**
 - **Multi-config support**: `--config / -c` global option — run multiple independent job searches from one machine, each with its own DB, logs, scheduler, and notifications
 - New notification channels: **Slack** and **Discord** webhooks — just paste a webhook URL, no API keys needed
