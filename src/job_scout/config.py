@@ -167,7 +167,8 @@ class DataPaths:
 
 
 def _sanitize(name: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_-]", "-", name).strip("-").lower()
+    result = re.sub(r"[^a-zA-Z0-9_-]", "-", name).strip("-").lower()
+    return result or "default"
 
 
 def derive_profile_name(config_path: Path, explicit_name: str | None = None) -> str:

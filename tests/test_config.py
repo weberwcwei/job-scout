@@ -379,6 +379,12 @@ class TestDeriveProfileName:
     def test_sanitize_strips_leading_trailing_dashes(self):
         assert _sanitize("--test--") == "test"
 
+    def test_sanitize_all_special_chars_returns_default(self):
+        assert _sanitize("!!!") == "default"
+
+    def test_sanitize_empty_string_returns_default(self):
+        assert _sanitize("") == "default"
+
     def test_explicit_name_sanitized(self):
         assert (
             derive_profile_name(Path("x.yaml"), "My Cool Search!") == "my-cool-search"

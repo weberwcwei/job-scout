@@ -47,9 +47,7 @@ _config_override: Path | None = None
 
 def _get_config():
     path = _config_override or resolve_config_path()
-    cfg = load_config(path)
-    cfg._config_path = path
-    return cfg
+    return load_config(path)  # load_config stashes _config_path
 
 
 def _get_db(cfg: AppConfig | None = None):
@@ -529,7 +527,9 @@ def schedule(
         scheduler.uninstall(profile_name=data_paths.profile_name)
         console.print("[dim]All schedules removed.[/dim]")
     else:
-        s = scheduler.status()
+        cfg = _get_config()
+        data_paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
+        s = scheduler.status(profile_name=data_paths.profile_name)
         log_dir = s.pop("log_dir", "")
         for name, info in s.items():
             status_str = (
@@ -564,8 +564,9 @@ def init(
         console.print("Run [bold]job-scout check[/bold] to validate it.")
         return
 
+    # Check CWD for existing config to migrate (default path only)
+    migrated = False
     if not is_custom:
-        # Also check CWD for existing config to migrate
         cwd_config = Path("config.yaml")
         if cwd_config.exists():
             console.print(
@@ -575,20 +576,9 @@ def init(
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(cwd_config), str(target))
             console.print(f"[green]Moved to {target}[/green]")
-        else:
-            project_dir = Path(__file__).resolve().parent.parent.parent
-            template = project_dir / (
-                "config.template.yaml" if full else "config.minimal.yaml"
-            )
+            migrated = True
 
-            if not template.exists():
-                console.print(f"[red]Template not found at {template}[/red]")
-                raise typer.Exit(1)
-
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(template, target)
-            console.print(f"[green]Created {target}[/green]")
-    else:
+    if not migrated:
         project_dir = Path(__file__).resolve().parent.parent.parent
         template = project_dir / (
             "config.template.yaml" if full else "config.minimal.yaml"
@@ -776,10 +766,10 @@ def rescore(
     ),
 ):
     """Re-score all jobs using current config (instant feedback loop for config tuning)."""
-    from job_scout.config import LOG_DIR
-
     cfg = _get_config()
     db = _get_db(cfg)
+    data_paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
+    log_dir = data_paths.logs
     scorer = JobScorer(cfg.profile)
 
     jobs = db.get_jobs(status=status, source=site, limit=None)
@@ -864,8 +854,8 @@ def rescore(
             )
 
     # Write log file
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f"rescore-{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.log"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"rescore-{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.log"
     with open(log_path, "w") as f:
         f.write(f"{prefix}Rescored {total} jobs ({len(updates)} changed)\n")
         if updates:
