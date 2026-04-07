@@ -629,6 +629,12 @@ def check():
     console.print(
         f"  Telegram alerts: {'enabled' if cfg.notifications.telegram.enabled else 'disabled'}"
     )
+    console.print(
+        f"  Slack alerts: {'enabled' if cfg.notifications.slack.enabled else 'disabled'}"
+    )
+    console.print(
+        f"  Discord alerts: {'enabled' if cfg.notifications.discord.enabled else 'disabled'}"
+    )
 
     # 5. Render diagnostics (warnings first, errors last)
     if warnings:
@@ -686,6 +692,32 @@ def check():
                     console.print(f" [red]FAILED[/red]: {resp.text}")
             except Exception as e:
                 console.print(f" [red]FAILED[/red]: {e}")
+
+    # 6c. Check Slack webhook URL format if enabled
+    if cfg.notifications.slack.enabled:
+        scfg = cfg.notifications.slack
+        if not scfg.webhook_url:
+            console.print("[yellow]  Slack enabled but webhook_url is empty.[/yellow]")
+        elif not scfg.webhook_url.startswith("https://hooks.slack.com/services/"):
+            console.print(
+                "[yellow]  Slack webhook URL doesn't match expected format.[/yellow]"
+            )
+        else:
+            console.print("  Slack webhook URL: [green]OK[/green]")
+
+    # 6d. Check Discord webhook URL format if enabled
+    if cfg.notifications.discord.enabled:
+        dcfg = cfg.notifications.discord
+        if not dcfg.webhook_url:
+            console.print(
+                "[yellow]  Discord enabled but webhook_url is empty.[/yellow]"
+            )
+        elif not dcfg.webhook_url.startswith("https://discord.com/api/webhooks/"):
+            console.print(
+                "[yellow]  Discord webhook URL doesn't match expected format.[/yellow]"
+            )
+        else:
+            console.print("  Discord webhook URL: [green]OK[/green]")
 
     console.print()
     console.print("Next: [bold]job-scout scrape --dry-run[/bold]")
@@ -810,9 +842,9 @@ def rescore(
 
 @app.command()
 def digest():
-    """Send daily digest of top job matches via email and/or Telegram."""
+    """Send daily digest of top job matches via email, Telegram, Slack, and/or Discord."""
     from datetime import timedelta
-    from job_scout.notify import send_email, send_telegram, _esc_md
+    from job_scout.notify import send_email, send_telegram, send_slack, send_discord, _esc_md, _esc_slack, _esc_discord
 
     cfg = _get_config()
     db = _get_db(cfg)
@@ -877,6 +909,54 @@ def digest():
         if send_telegram(
             text="\n".join(tg_lines),
             cfg=cfg.notifications.telegram,
+        ):
+            sent_any = True
+
+    # Slack digest
+    if cfg.notifications.slack.enabled:
+        sl_lines = [f"*job-scout digest* — {len(jobs)} match(es)\n"]
+        for job in display_jobs:
+            salary = job.compensation.display_concise if job.compensation else ""
+            kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            id_tag = f"#{job.id} " if job.id else ""
+            loc_line = f"  {_esc_slack(job.location.display)}"
+            if salary:
+                loc_line += f" | {_esc_slack(salary)}"
+            sl_lines.append(
+                f"*{_esc_slack(job.company)}: {_esc_slack(job.title)}*\n"
+                f"Score: {job.score} | keywords: {kw} | {id_tag}{loc_line}\n"
+                f"{job.url}"
+            )
+        sl_lines.append(
+            f"\n\U0001f4ca {stats['total_new']} unreviewed | {stats['scraped_24h']} scraped today"
+        )
+        if send_slack(
+            text="\n".join(sl_lines),
+            cfg=cfg.notifications.slack,
+        ):
+            sent_any = True
+
+    # Discord digest
+    if cfg.notifications.discord.enabled:
+        dc_lines = [f"**job-scout digest** — {len(jobs)} match(es)\n"]
+        for job in display_jobs:
+            salary = job.compensation.display_concise if job.compensation else ""
+            kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+            id_tag = f"#{job.id} " if job.id else ""
+            loc_line = f"  {_esc_discord(job.location.display)}"
+            if salary:
+                loc_line += f" | {_esc_discord(salary)}"
+            dc_lines.append(
+                f"**{_esc_discord(job.company)}: {_esc_discord(job.title)}**\n"
+                f"Score: {job.score} | keywords: {kw} | {id_tag}{loc_line}\n"
+                f"{job.url}"
+            )
+        dc_lines.append(
+            f"\n\U0001f4ca {stats['total_new']} unreviewed | {stats['scraped_24h']} scraped today"
+        )
+        if send_discord(
+            text="\n".join(dc_lines),
+            cfg=cfg.notifications.discord,
         ):
             sent_any = True
 

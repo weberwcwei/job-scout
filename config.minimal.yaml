@@ -24,3 +24,9 @@ search:
 #     enabled: true
 #     bot_token: ""          # get from @BotFather
 #     chat_id: ""            # your chat ID
+#   slack:
+#     enabled: true
+#     webhook_url: ""        # https://hooks.slack.com/services/T.../B.../...
+#   discord:
+#     enabled: true
+#     webhook_url: ""        # https://discord.com/api/webhooks/ID/TOKEN

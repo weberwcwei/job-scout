@@ -274,6 +274,94 @@ class TestDealBreakerRegexErrors:
         assert not any(d.level == "error" for d in diags)
 
 
+class TestWebhookUrlWarnings:
+    def test_slack_bad_url_warns(self):
+        cfg = _cfg(
+            **{
+                "notifications.slack": {
+                    "enabled": True,
+                    "webhook_url": "https://example.com/bad",
+                },
+            }
+        )
+        diags = validate_quality(cfg)
+        assert any(
+            d.field == "notifications.slack.webhook_url" and d.level == "warning"
+            for d in diags
+        )
+
+    def test_slack_good_url_no_warning(self):
+        cfg = _cfg(
+            **{
+                "notifications.slack": {
+                    "enabled": True,
+                    "webhook_url": "https://hooks.slack.com/services/T/B/x",
+                },
+            }
+        )
+        diags = validate_quality(cfg)
+        assert not any(
+            d.field == "notifications.slack.webhook_url" for d in diags
+        )
+
+    def test_slack_disabled_no_warning(self):
+        cfg = _cfg(
+            **{
+                "notifications.slack": {
+                    "enabled": False,
+                    "webhook_url": "https://example.com/bad",
+                },
+            }
+        )
+        diags = validate_quality(cfg)
+        assert not any(
+            d.field == "notifications.slack.webhook_url" for d in diags
+        )
+
+    def test_discord_bad_url_warns(self):
+        cfg = _cfg(
+            **{
+                "notifications.discord": {
+                    "enabled": True,
+                    "webhook_url": "https://example.com/bad",
+                },
+            }
+        )
+        diags = validate_quality(cfg)
+        assert any(
+            d.field == "notifications.discord.webhook_url" and d.level == "warning"
+            for d in diags
+        )
+
+    def test_discord_good_url_no_warning(self):
+        cfg = _cfg(
+            **{
+                "notifications.discord": {
+                    "enabled": True,
+                    "webhook_url": "https://discord.com/api/webhooks/123/abc",
+                },
+            }
+        )
+        diags = validate_quality(cfg)
+        assert not any(
+            d.field == "notifications.discord.webhook_url" for d in diags
+        )
+
+    def test_discord_disabled_no_warning(self):
+        cfg = _cfg(
+            **{
+                "notifications.discord": {
+                    "enabled": False,
+                    "webhook_url": "https://example.com/bad",
+                },
+            }
+        )
+        diags = validate_quality(cfg)
+        assert not any(
+            d.field == "notifications.discord.webhook_url" for d in diags
+        )
+
+
 class TestCleanConfig:
     def test_fully_populated_config_no_diagnostics(self):
         """A well-configured config should produce zero diagnostics."""

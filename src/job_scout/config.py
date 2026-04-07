@@ -108,10 +108,22 @@ class TelegramConfig(BaseModel):
     chat_id: str = ""
 
 
+class SlackConfig(BaseModel):
+    enabled: bool = False
+    webhook_url: str = ""
+
+
+class DiscordConfig(BaseModel):
+    enabled: bool = False
+    webhook_url: str = ""
+
+
 class NotificationsConfig(BaseModel):
     macos: MacOSNotifyConfig = MacOSNotifyConfig()
     email: EmailConfig = EmailConfig()
     telegram: TelegramConfig = TelegramConfig()
+    slack: SlackConfig = SlackConfig()
+    discord: DiscordConfig = DiscordConfig()
 
 
 class ScheduleConfig(BaseModel):
@@ -257,6 +269,31 @@ def validate_quality(cfg: AppConfig) -> list[ConfigDiagnostic]:
                     level="warning",
                     field="profile.keywords.critical",
                     message="No critical keywords — keyword score capped at 10 regardless of other matches",
+                )
+            )
+
+    # --- Warnings: webhook URL format ---
+    if cfg.notifications.slack.enabled and cfg.notifications.slack.webhook_url:
+        if not cfg.notifications.slack.webhook_url.startswith(
+            "https://hooks.slack.com/services/"
+        ):
+            diags.append(
+                ConfigDiagnostic(
+                    level="warning",
+                    field="notifications.slack.webhook_url",
+                    message="Slack webhook URL doesn't match expected format (https://hooks.slack.com/services/...)",
+                )
+            )
+
+    if cfg.notifications.discord.enabled and cfg.notifications.discord.webhook_url:
+        if not cfg.notifications.discord.webhook_url.startswith(
+            "https://discord.com/api/webhooks/"
+        ):
+            diags.append(
+                ConfigDiagnostic(
+                    level="warning",
+                    field="notifications.discord.webhook_url",
+                    message="Discord webhook URL doesn't match expected format (https://discord.com/api/webhooks/...)",
                 )
             )
 
