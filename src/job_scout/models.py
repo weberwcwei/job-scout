@@ -223,6 +223,11 @@ class Location(BaseModel):
         # Rule 6: Normalize state → 2-letter abbreviation
         if self.state:
             state_lower = self.state.lower()
+            # Strip metro suffixes: "Texas Metropolitan Area" → "texas"
+            for suffix in (" metropolitan area", " metro area"):
+                if state_lower.endswith(suffix):
+                    state_lower = state_lower[: -len(suffix)].strip()
+                    break
             if state_lower in US_STATES:
                 self.state = US_STATES[state_lower]
             elif self.state.upper() in _STATE_CODES:

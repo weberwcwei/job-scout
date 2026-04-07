@@ -220,6 +220,14 @@ class TestLocationNormalization:
         loc = Location(state="Ontario")
         assert loc.state == "Ontario"
 
+    def test_state_metro_area_stripped(self):
+        loc = Location(city="Austin", state="Texas Metropolitan Area")
+        assert loc.state == "TX"
+
+    def test_state_metro_area_multi_word(self):
+        loc = Location(city="Albany", state="New York Metropolitan Area")
+        assert loc.state == "NY"
+
     # Rule 7: Country normalization
     def test_country_full_name(self):
         loc = Location(country="United States")
