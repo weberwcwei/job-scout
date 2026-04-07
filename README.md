@@ -22,18 +22,10 @@
 ## Changelog
 
 **2026-04-07**
-- **Location normalization**: auto-corrects scraped location data — shifted fields, state abbreviation, country codes, redundant "Remote" city
-- New `job-scout fix-locations` command — back-fixes existing DB rows
-- Config `alert_states` now accepts full names ("California") or abbreviations ("CA") interchangeably
+- Location normalization: auto-corrects scraped city/state/country data via model validator
 
 **2026-04-06**
-- **Multi-config support**: `--config / -c` global option — run multiple independent job searches from one machine, each with its own DB, logs, scheduler, and notifications
-- New notification channels: **Slack** and **Discord** webhooks — just paste a webhook URL, no API keys needed
-- New `job-scout report` command — generates a daily markdown report with scored job tables and 7-day trend
-- New `job-scout export` command — export jobs to CSV or JSON with all the same filters as `list`
-- `digest` now includes a stats footer (unreviewed count, scraped today) and concise salary format
-- `schedule --install` now sets up scrape, digest, and report on separate schedules
-- Scrape warns when a site returns zero results
+- Multi-config (`--config`), Slack/Discord webhooks, `report` and `export` commands, digest stats footer, multi-plist scheduler, zero-result warnings
 
 **2026-04-05**
 - `rescore` command, dealbreaker storage, config quality warnings, XDG config path
