@@ -48,6 +48,9 @@ def _mock_cfg(
 ):
     mock = MagicMock(spec=AppConfig)
     mock.db_path = db_path
+    mock._config_path = None
+    mock.config_name = None
+    mock.report_dir = db_path.parent / "reports"
     mock.scoring = ScoringConfig(min_alert_score=55, alert_states=alert_states or [])
     mock.notifications = NotificationsConfig(
         macos=MacOSNotifyConfig(enabled=False),

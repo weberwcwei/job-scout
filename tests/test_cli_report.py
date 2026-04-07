@@ -34,6 +34,16 @@ def _make_job(
     )
 
 
+def _mock_cfg(db_path, report_dir):
+    mock = MagicMock(spec=AppConfig)
+    mock.db_path = db_path
+    mock._config_path = None
+    mock.config_name = None
+    mock.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
+    mock.report_dir = report_dir
+    return mock
+
+
 class TestReportCommand:
     def test_creates_report_file(self, tmp_path):
         """report() creates a markdown file at the expected path."""
@@ -49,11 +59,7 @@ class TestReportCommand:
         db.upsert_job(_make_job("r1", score=70))
         db.close()
 
-        # Mock config
-        mock_cfg = MagicMock(spec=AppConfig)
-        mock_cfg.db_path = db_path
-        mock_cfg.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
-        mock_cfg.report_dir = report_dir
+        mock_cfg = _mock_cfg(db_path, report_dir)
 
         with patch("job_scout.cli._get_config", return_value=mock_cfg):
             result = runner.invoke(app, ["report"])
@@ -77,10 +83,7 @@ class TestReportCommand:
         db.upsert_job(_make_job("r2", score=70, company="NVIDIA", title="ML Eng"))
         db.close()
 
-        mock_cfg = MagicMock(spec=AppConfig)
-        mock_cfg.db_path = db_path
-        mock_cfg.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
-        mock_cfg.report_dir = report_dir
+        mock_cfg = _mock_cfg(db_path, report_dir)
 
         with patch("job_scout.cli._get_config", return_value=mock_cfg):
             runner.invoke(app, ["report"])
@@ -105,10 +108,7 @@ class TestReportCommand:
         db.upsert_job(_make_job("r3", score=60))
         db.close()
 
-        mock_cfg = MagicMock(spec=AppConfig)
-        mock_cfg.db_path = db_path
-        mock_cfg.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
-        mock_cfg.report_dir = report_dir
+        mock_cfg = _mock_cfg(db_path, report_dir)
 
         with patch("job_scout.cli._get_config", return_value=mock_cfg):
             runner.invoke(app, ["report"])
@@ -129,10 +129,7 @@ class TestReportCommand:
         db = JobDB(db_path)
         db.close()  # Empty DB
 
-        mock_cfg = MagicMock(spec=AppConfig)
-        mock_cfg.db_path = db_path
-        mock_cfg.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
-        mock_cfg.report_dir = report_dir
+        mock_cfg = _mock_cfg(db_path, report_dir)
 
         with patch("job_scout.cli._get_config", return_value=mock_cfg):
             result = runner.invoke(app, ["report"])
@@ -153,10 +150,7 @@ class TestReportCommand:
         db.upsert_job(_make_job("m2", score=42, company="MediumCo2"))
         db.close()
 
-        mock_cfg = MagicMock(spec=AppConfig)
-        mock_cfg.db_path = db_path
-        mock_cfg.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
-        mock_cfg.report_dir = report_dir
+        mock_cfg = _mock_cfg(db_path, report_dir)
 
         with patch("job_scout.cli._get_config", return_value=mock_cfg):
             runner.invoke(app, ["report"])
@@ -180,10 +174,7 @@ class TestReportCommand:
         db.upsert_job(_make_job("rdir1", score=70))
         db.close()
 
-        mock_cfg = MagicMock(spec=AppConfig)
-        mock_cfg.db_path = db_path
-        mock_cfg.scoring = ScoringConfig(min_alert_score=55, alert_states=[])
-        mock_cfg.report_dir = report_dir
+        mock_cfg = _mock_cfg(db_path, report_dir)
 
         with patch("job_scout.cli._get_config", return_value=mock_cfg):
             result = runner.invoke(app, ["report"])

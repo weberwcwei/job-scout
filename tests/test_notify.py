@@ -139,8 +139,12 @@ class TestNotifierTelegram:
                 to_address="a@b.com",
             ),
             telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
-            slack=SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"),
-            discord=DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"),
+            slack=SlackConfig(
+                enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"
+            ),
+            discord=DiscordConfig(
+                enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+            ),
         )
         notifier = Notifier(cfg)
 
@@ -282,6 +286,127 @@ class TestNotifyFormatConcise:
         msg = call_args[0][0]
         body = msg.get_payload()[0].get_payload(decode=True).decode()
         assert "No salary" not in body
+
+
+class TestNotifierProfileName:
+    """Tests for profile name in notification messages."""
+
+    @patch("subprocess.run")
+    def test_macos_title_default(self, mock_subprocess):
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=True),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+        )
+        notifier = Notifier(cfg)
+        notifier.notify_new_jobs([_make_job()])
+
+        script = mock_subprocess.call_args[0][0][-1]
+        assert "job-scout:" in script
+        assert "job-scout (" not in script
+
+    @patch("subprocess.run")
+    def test_macos_title_named(self, mock_subprocess):
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=True),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+        )
+        notifier = Notifier(cfg, profile_name="frontend")
+        notifier.notify_new_jobs([_make_job()])
+
+        script = mock_subprocess.call_args[0][0][-1]
+        assert "job-scout (frontend)" in script
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_telegram_prefix_default(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
+        )
+        notifier = Notifier(cfg)
+        notifier.notify_new_jobs([_make_job()])
+
+        text = mock_post.call_args.kwargs["json"]["text"]
+        assert "job\\-scout" in text
+        assert "job\\-scout \\(" not in text
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_telegram_prefix_named(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=True, bot_token="123:ABC", chat_id="42"),
+        )
+        notifier = Notifier(cfg, profile_name="frontend")
+        notifier.notify_new_jobs([_make_job()])
+
+        text = mock_post.call_args.kwargs["json"]["text"]
+        assert "frontend" in text
+
+    @patch("subprocess.run")
+    def test_email_subject_named(self, mock_subprocess):
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(
+                enabled=True,
+                username="a@b.com",
+                app_password="pass",
+                to_address="a@b.com",
+            ),
+            telegram=TelegramConfig(enabled=False),
+        )
+        notifier = Notifier(cfg, profile_name="frontend")
+        with patch("job_scout.notify.smtplib.SMTP") as mock_smtp:
+            mock_smtp.return_value = MagicMock()
+            notifier.notify_new_jobs([_make_job()])
+
+        call_args = mock_smtp.return_value.send_message.call_args
+        msg = call_args[0][0]
+        assert "frontend" in msg["Subject"]
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_slack_prefix_named(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+            slack=SlackConfig(
+                enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"
+            ),
+            discord=DiscordConfig(enabled=False),
+        )
+        notifier = Notifier(cfg, profile_name="frontend")
+        notifier.notify_new_jobs([_make_job()])
+
+        text = mock_post.call_args.kwargs["json"]["text"]
+        assert "frontend" in text
+
+    @patch("job_scout.notify.httpx.post")
+    @patch("subprocess.run")
+    def test_discord_prefix_named(self, mock_subprocess, mock_post):
+        mock_post.return_value = MagicMock(status_code=204)
+        cfg = NotificationsConfig(
+            macos=MacOSNotifyConfig(enabled=False),
+            email=EmailConfig(enabled=False),
+            telegram=TelegramConfig(enabled=False),
+            slack=SlackConfig(enabled=False),
+            discord=DiscordConfig(
+                enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+            ),
+        )
+        notifier = Notifier(cfg, profile_name="frontend")
+        notifier.notify_new_jobs([_make_job()])
+
+        text = mock_post.call_args.kwargs["json"]["content"]
+        assert "frontend" in text
 
 
 class TestSendEmail:
@@ -433,7 +558,9 @@ class TestSendSlack:
     @patch("job_scout.notify.httpx.post")
     def test_sends_message(self, mock_post):
         mock_post.return_value = MagicMock(status_code=200)
-        cfg = SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x")
+        cfg = SlackConfig(
+            enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"
+        )
 
         result = send_slack(text="hello", cfg=cfg)
 
@@ -453,14 +580,18 @@ class TestSendSlack:
     @patch("job_scout.notify.httpx.post")
     def test_api_error_returns_false(self, mock_post):
         mock_post.return_value = MagicMock(status_code=400, text="Bad Request")
-        cfg = SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x")
+        cfg = SlackConfig(
+            enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"
+        )
         result = send_slack(text="hello", cfg=cfg)
         assert result is False
 
     @patch("job_scout.notify.httpx.post")
     def test_network_error_returns_false(self, mock_post):
         mock_post.side_effect = httpx.ConnectError("timeout")
-        cfg = SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x")
+        cfg = SlackConfig(
+            enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"
+        )
         result = send_slack(text="hello", cfg=cfg)
         assert result is False
 
@@ -469,7 +600,9 @@ class TestSendDiscord:
     @patch("job_scout.notify.httpx.post")
     def test_sends_message_204(self, mock_post):
         mock_post.return_value = MagicMock(status_code=204)
-        cfg = DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc")
+        cfg = DiscordConfig(
+            enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+        )
 
         result = send_discord(text="hello", cfg=cfg)
 
@@ -489,14 +622,18 @@ class TestSendDiscord:
     @patch("job_scout.notify.httpx.post")
     def test_api_error_returns_false(self, mock_post):
         mock_post.return_value = MagicMock(status_code=400, text="Bad Request")
-        cfg = DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc")
+        cfg = DiscordConfig(
+            enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+        )
         result = send_discord(text="hello", cfg=cfg)
         assert result is False
 
     @patch("job_scout.notify.httpx.post")
     def test_network_error_returns_false(self, mock_post):
         mock_post.side_effect = httpx.ConnectError("timeout")
-        cfg = DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc")
+        cfg = DiscordConfig(
+            enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+        )
         result = send_discord(text="hello", cfg=cfg)
         assert result is False
 
@@ -510,7 +647,9 @@ class TestNotifierSlack:
             macos=MacOSNotifyConfig(enabled=False),
             email=EmailConfig(enabled=False),
             telegram=TelegramConfig(enabled=False),
-            slack=SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"),
+            slack=SlackConfig(
+                enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"
+            ),
             discord=DiscordConfig(enabled=False),
         )
         notifier = Notifier(cfg)
@@ -546,11 +685,15 @@ class TestNotifierSlack:
             macos=MacOSNotifyConfig(enabled=False),
             email=EmailConfig(enabled=False),
             telegram=TelegramConfig(enabled=False),
-            slack=SlackConfig(enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"),
+            slack=SlackConfig(
+                enabled=True, webhook_url="https://hooks.slack.com/services/T/B/x"
+            ),
             discord=DiscordConfig(enabled=False),
         )
         notifier = Notifier(cfg)
-        notifier.notify_new_jobs([_make_job(score=75, company="NVIDIA", title="ML Eng")])
+        notifier.notify_new_jobs(
+            [_make_job(score=75, company="NVIDIA", title="ML Eng")]
+        )
 
         text = mock_post.call_args.kwargs["json"]["text"]
         assert "75" in text
@@ -569,7 +712,9 @@ class TestNotifierDiscord:
             email=EmailConfig(enabled=False),
             telegram=TelegramConfig(enabled=False),
             slack=SlackConfig(enabled=False),
-            discord=DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"),
+            discord=DiscordConfig(
+                enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+            ),
         )
         notifier = Notifier(cfg)
         jobs = [_make_job(score=70), _make_job(score=60, company="OtherCo")]
@@ -605,10 +750,14 @@ class TestNotifierDiscord:
             email=EmailConfig(enabled=False),
             telegram=TelegramConfig(enabled=False),
             slack=SlackConfig(enabled=False),
-            discord=DiscordConfig(enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"),
+            discord=DiscordConfig(
+                enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+            ),
         )
         notifier = Notifier(cfg)
-        notifier.notify_new_jobs([_make_job(score=75, company="NVIDIA", title="ML Eng")])
+        notifier.notify_new_jobs(
+            [_make_job(score=75, company="NVIDIA", title="ML Eng")]
+        )
 
         text = mock_post.call_args.kwargs["json"]["content"]
         assert "75" in text

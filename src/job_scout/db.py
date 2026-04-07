@@ -87,10 +87,7 @@ class JobDB:
 
     def _migrate(self) -> None:
         """Add columns that may be missing in databases created before this version."""
-        cols = {
-            r[1]
-            for r in self.conn.execute("PRAGMA table_info(jobs)").fetchall()
-        }
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(jobs)").fetchall()}
         if "search_term" not in cols:
             self.conn.execute("ALTER TABLE jobs ADD COLUMN search_term TEXT")
             self.conn.commit()

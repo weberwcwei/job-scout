@@ -300,9 +300,7 @@ class TestWebhookUrlWarnings:
             }
         )
         diags = validate_quality(cfg)
-        assert not any(
-            d.field == "notifications.slack.webhook_url" for d in diags
-        )
+        assert not any(d.field == "notifications.slack.webhook_url" for d in diags)
 
     def test_slack_disabled_no_warning(self):
         cfg = _cfg(
@@ -314,9 +312,7 @@ class TestWebhookUrlWarnings:
             }
         )
         diags = validate_quality(cfg)
-        assert not any(
-            d.field == "notifications.slack.webhook_url" for d in diags
-        )
+        assert not any(d.field == "notifications.slack.webhook_url" for d in diags)
 
     def test_discord_bad_url_warns(self):
         cfg = _cfg(
@@ -343,9 +339,7 @@ class TestWebhookUrlWarnings:
             }
         )
         diags = validate_quality(cfg)
-        assert not any(
-            d.field == "notifications.discord.webhook_url" for d in diags
-        )
+        assert not any(d.field == "notifications.discord.webhook_url" for d in diags)
 
     def test_discord_disabled_no_warning(self):
         cfg = _cfg(
@@ -357,9 +351,7 @@ class TestWebhookUrlWarnings:
             }
         )
         diags = validate_quality(cfg)
-        assert not any(
-            d.field == "notifications.discord.webhook_url" for d in diags
-        )
+        assert not any(d.field == "notifications.discord.webhook_url" for d in diags)
 
 
 class TestCleanConfig:

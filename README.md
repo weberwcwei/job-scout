@@ -22,6 +22,7 @@
 ## Changelog
 
 **2026-04-06**
+- **Multi-config support**: `--config / -c` global option — run multiple independent job searches from one machine, each with its own DB, logs, scheduler, and notifications
 - New notification channels: **Slack** and **Discord** webhooks — just paste a webhook URL, no API keys needed
 - New `job-scout report` command — generates a daily markdown report with scored job tables and 7-day trend
 - New `job-scout export` command — export jobs to CSV or JSON with all the same filters as `list`
@@ -241,6 +242,25 @@ job-scout stats                # see your numbers
 job-scout digest               # send today's top matches now
 job-scout report               # generate a daily markdown report
 job-scout export -o jobs.csv   # export jobs to CSV or JSON
+```
+
+## Multiple Searches
+
+Want to run separate searches — e.g., frontend roles vs. backend, or searches for different people? Use the `--config` flag:
+
+```bash
+job-scout --config frontend.yaml init        # create a new config
+job-scout --config frontend.yaml check       # validate it
+job-scout --config frontend.yaml scrape      # run it — separate DB, logs, everything
+job-scout --config frontend.yaml schedule --install  # automate on its own schedule
+```
+
+Each config file gets its own database, scheduler plists, log directory, and notification prefix (derived from the filename). Your existing setup (`config.yaml`) continues to work exactly as before — no migration needed.
+
+You can also set an explicit profile name in the config to avoid filename-based derivation:
+
+```yaml
+config_name: backend-jobs
 ```
 
 ## Your Daily Routine

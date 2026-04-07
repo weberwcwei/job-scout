@@ -79,7 +79,7 @@ def mock_env(tmp_path):
     with (
         patch("job_scout.cli._get_config", return_value=cfg),
         patch("job_scout.cli._get_db", side_effect=_make_db),
-        patch("job_scout.scheduler.LOG_DIR", tmp_path / "logs"),
+        patch("job_scout.config.LOG_DIR", tmp_path / "logs"),
     ):
         yield cfg, setup_db, tmp_path
 
