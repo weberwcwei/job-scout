@@ -17,8 +17,9 @@ log = logging.getLogger("job_scout.notify")
 
 
 class Notifier:
-    def __init__(self, config: NotificationsConfig):
+    def __init__(self, config: NotificationsConfig, profile_name: str = "default"):
         self.config = config
+        self.profile_name = profile_name
 
     def notify_new_jobs(self, jobs: list[Job]) -> None:
         if not jobs:
@@ -35,12 +36,17 @@ class Notifier:
             self._notify_discord(jobs)
 
     def _notify_macos(self, jobs: list[Job]) -> None:
+        prefix = (
+            f"job-scout ({self.profile_name})"
+            if self.profile_name != "default"
+            else "job-scout"
+        )
         if len(jobs) == 1:
             job = jobs[0]
-            title = f"job-scout: {job.company}"
+            title = f"{prefix}: {job.company}"
             body = f"{job.title} (Score: {job.score})"
         else:
-            title = f"job-scout: {len(jobs)} new matches"
+            title = f"{prefix}: {len(jobs)} new matches"
             top3 = jobs[:3]
             body = "\\n".join(f"{j.company}: {j.title} ({j.score})" for j in top3)
             if len(jobs) > 3:
@@ -66,7 +72,12 @@ class Notifier:
             log.warning("Email not configured — skipping alert")
             return
 
-        lines = [f"job-scout alert — {len(jobs)} new match(es)\n"]
+        prefix = (
+            f"job-scout ({self.profile_name})"
+            if self.profile_name != "default"
+            else "job-scout"
+        )
+        lines = [f"{prefix} alert — {len(jobs)} new match(es)\n"]
         for job in jobs:
             salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
@@ -82,7 +93,7 @@ class Notifier:
         body = "\n".join(lines)
 
         send_email(
-            subject=f"job-scout: {len(jobs)} new match(es)",
+            subject=f"{prefix}: {len(jobs)} new match(es)",
             body=body,
             cfg=cfg,
         )
@@ -93,7 +104,11 @@ class Notifier:
             log.warning("Telegram bot_token or chat_id not configured")
             return
 
-        lines = [f"*job\\-scout* — {len(jobs)} new match\\(es\\)\n"]
+        if self.profile_name != "default":
+            header = f"*job\\-scout \\({_esc_md(self.profile_name)}\\)* — {len(jobs)} new match\\(es\\)\n"
+        else:
+            header = f"*job\\-scout* — {len(jobs)} new match\\(es\\)\n"
+        lines = [header]
         for job in jobs:
             salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
@@ -115,7 +130,12 @@ class Notifier:
             log.warning("Slack webhook_url not configured")
             return
 
-        lines = [f"*job-scout* — {len(jobs)} new match(es)\n"]
+        prefix = (
+            f"*job-scout ({self.profile_name})* "
+            if self.profile_name != "default"
+            else "*job-scout* "
+        )
+        lines = [f"{prefix}— {len(jobs)} new match(es)\n"]
         for job in jobs:
             salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
@@ -138,7 +158,12 @@ class Notifier:
             log.warning("Discord webhook_url not configured")
             return
 
-        lines = [f"**job-scout** — {len(jobs)} new match(es)\n"]
+        prefix = (
+            f"**job-scout ({self.profile_name})**"
+            if self.profile_name != "default"
+            else "**job-scout**"
+        )
+        lines = [f"{prefix} — {len(jobs)} new match(es)\n"]
         for job in jobs:
             salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"

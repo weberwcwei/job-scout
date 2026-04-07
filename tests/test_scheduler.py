@@ -74,6 +74,70 @@ class TestGeneratePlists:
         assert len(stdout_paths) == 3
 
 
+class TestGeneratePlistsMultiConfig:
+    def test_default_no_config_flag(self):
+        from job_scout.scheduler import generate_plists
+
+        schedule = ScheduleConfig()
+        plists = generate_plists(schedule, project_dir=Path("/fake/project"))
+        scrape_args = plists["com.user.job-scout.scrape"]["ProgramArguments"]
+        assert "--config" not in scrape_args
+
+    def test_named_includes_config_flag(self, tmp_path):
+        from job_scout.scheduler import generate_plists
+
+        config_path = tmp_path / "frontend.yaml"
+        config_path.touch()
+        schedule = ScheduleConfig()
+        plists = generate_plists(
+            schedule,
+            project_dir=Path("/fake/project"),
+            profile_name="frontend",
+            config_path=config_path,
+        )
+        label = "com.user.job-scout.frontend.scrape"
+        scrape_args = plists[label]["ProgramArguments"]
+        assert "--config" in scrape_args
+        config_idx = scrape_args.index("--config")
+        assert scrape_args[config_idx + 1] == str(config_path.resolve())
+
+    def test_named_labels(self, tmp_path):
+        from job_scout.scheduler import generate_plists
+
+        config_path = tmp_path / "frontend.yaml"
+        config_path.touch()
+        schedule = ScheduleConfig()
+        plists = generate_plists(
+            schedule,
+            project_dir=Path("/fake/project"),
+            profile_name="frontend",
+            config_path=config_path,
+        )
+        labels = list(plists.keys())
+        assert "com.user.job-scout.frontend.scrape" in labels
+        assert "com.user.job-scout.frontend.digest" in labels
+        assert "com.user.job-scout.frontend.report" in labels
+
+    def test_log_paths_namespaced(self, tmp_path):
+        from job_scout.scheduler import generate_plists
+
+        config_path = tmp_path / "frontend.yaml"
+        config_path.touch()
+        schedule = ScheduleConfig()
+
+        with patch("job_scout.scheduler.LOG_DIR", tmp_path / "logs"):
+            plists = generate_plists(
+                schedule,
+                project_dir=Path("/fake/project"),
+                profile_name="frontend",
+                config_path=config_path,
+            )
+
+        label = "com.user.job-scout.frontend.scrape"
+        stdout_path = plists[label]["StandardOutPath"]
+        assert "frontend" in stdout_path
+
+
 class TestUninstallLegacy:
     @patch("job_scout.scheduler.subprocess.run")
     def test_removes_legacy_plist(self, mock_run):
@@ -101,6 +165,22 @@ class TestPlistLabels:
         assert PLIST_LABELS["scrape"] == "com.user.job-scout.scrape"
         assert PLIST_LABELS["digest"] == "com.user.job-scout.digest"
         assert PLIST_LABELS["report"] == "com.user.job-scout.report"
+
+    def test_plist_labels_default(self):
+        from job_scout.scheduler import plist_labels
+
+        labels = plist_labels("default")
+        assert labels["scrape"] == "com.user.job-scout.scrape"
+        assert labels["digest"] == "com.user.job-scout.digest"
+        assert labels["report"] == "com.user.job-scout.report"
+
+    def test_plist_labels_named(self):
+        from job_scout.scheduler import plist_labels
+
+        labels = plist_labels("frontend")
+        assert labels["scrape"] == "com.user.job-scout.frontend.scrape"
+        assert labels["digest"] == "com.user.job-scout.frontend.digest"
+        assert labels["report"] == "com.user.job-scout.frontend.report"
 
 
 class TestInstall:
@@ -271,6 +351,10 @@ class TestScheduleCLI:
 
         cfg = MagicMock(spec=AppConfig)
         cfg.schedule = ScheduleConfig()
+        cfg._config_path = tmp_path / "config.yaml"
+        cfg.config_name = None
+        cfg.db_path = None
+        cfg.report_dir = Path.home() / ".local" / "share" / "job-scout" / "reports"
 
         with (
             patch("job_scout.cli._get_config", return_value=cfg),

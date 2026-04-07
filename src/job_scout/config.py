@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, PrivateAttr, model_validator
 
 
 class ConfigDiagnostic(BaseModel):
@@ -143,15 +144,53 @@ class AppConfig(BaseModel):
     schedule: ScheduleConfig = ScheduleConfig()
     db_path: Path | None = None
     report_dir: Path = Path.home() / ".local" / "share" / "job-scout" / "reports"
+    config_name: str | None = None
+    _config_path: Path | None = PrivateAttr(default=None)
 
 
 DATA_DIR = Path.home() / ".local" / "share" / "job-scout"
+LOG_DIR = DATA_DIR / "logs"
 XDG_CONFIG_DIR = (
     Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "job-scout"
 )
 XDG_CONFIG_PATH = XDG_CONFIG_DIR / "config.yaml"
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "job-scout" / "job-scout.db"
+
+
+@dataclass
+class DataPaths:
+    profile_name: str
+    db: Path
+    logs: Path
+    reports: Path
+
+
+def _sanitize(name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]", "-", name).strip("-").lower()
+
+
+def derive_profile_name(config_path: Path, explicit_name: str | None = None) -> str:
+    if explicit_name:
+        return _sanitize(explicit_name)
+    stem = config_path.stem
+    if stem == "config":
+        return "default"
+    return _sanitize(stem)
+
+
+def resolve_data_paths(config_path: Path, cfg: AppConfig) -> DataPaths:
+    """Derive DB, log, and report paths from profile name."""
+    profile_name = derive_profile_name(config_path, cfg.config_name)
+    is_default = profile_name == "default"
+
+    return DataPaths(
+        profile_name=profile_name,
+        db=cfg.db_path
+        or (DEFAULT_DB_PATH if is_default else DATA_DIR / f"{profile_name}.db"),
+        logs=LOG_DIR if is_default else LOG_DIR / profile_name,
+        reports=cfg.report_dir if is_default else cfg.report_dir / profile_name,
+    )
 
 
 def resolve_config_path() -> Path:
@@ -170,7 +209,9 @@ def load_config(path: Path | str | None = None) -> AppConfig:
     with open(path) as f:
         raw = yaml.safe_load(f)
     try:
-        return AppConfig(**raw)
+        cfg = AppConfig(**raw)
+        cfg._config_path = path
+        return cfg
     except Exception as e:
         from pydantic import ValidationError
 

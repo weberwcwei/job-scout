@@ -8,11 +8,17 @@ from unittest.mock import patch
 import pytest
 
 from job_scout.config import (
+    DATA_DIR,
+    DEFAULT_DB_PATH,
+    LOG_DIR,
     AppConfig,
     ScrapingConfig,
     SearchConfig,
     TelegramConfig,
+    _sanitize,
+    derive_profile_name,
     resolve_config_path,
+    resolve_data_paths,
 )
 
 
@@ -346,3 +352,115 @@ class TestDbPath:
         }
         cfg = AppConfig(**raw)
         assert cfg.db_path == Path("/tmp/custom.db")
+
+
+class TestDeriveProfileName:
+    def test_explicit_name(self):
+        assert derive_profile_name(Path("whatever.yaml"), "my-search") == "my-search"
+
+    def test_from_stem(self):
+        assert derive_profile_name(Path("frontend.yaml")) == "frontend"
+
+    def test_config_default(self):
+        assert derive_profile_name(Path("config.yaml")) == "default"
+
+    def test_nested_config_default(self):
+        assert derive_profile_name(Path("/some/dir/config.yaml")) == "default"
+
+    def test_sanitize_special_chars(self):
+        assert _sanitize("My Search!!") == "my-search"
+
+    def test_sanitize_spaces(self):
+        assert _sanitize("hello world") == "hello-world"
+
+    def test_sanitize_preserves_valid(self):
+        assert _sanitize("my-search_2") == "my-search_2"
+
+    def test_sanitize_strips_leading_trailing_dashes(self):
+        assert _sanitize("--test--") == "test"
+
+    def test_explicit_name_sanitized(self):
+        assert (
+            derive_profile_name(Path("x.yaml"), "My Cool Search!") == "my-cool-search"
+        )
+
+
+class TestResolveDataPaths:
+    def _make_cfg(self, **kwargs):
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+        }
+        raw.update(kwargs)
+        return AppConfig(**raw)
+
+    def test_default_profile_uses_existing_paths(self):
+        cfg = self._make_cfg()
+        paths = resolve_data_paths(Path("config.yaml"), cfg)
+        assert paths.profile_name == "default"
+        assert paths.db == DEFAULT_DB_PATH
+        assert paths.logs == LOG_DIR
+        assert paths.reports == cfg.report_dir
+
+    def test_named_profile_uses_namespaced_paths(self):
+        cfg = self._make_cfg()
+        paths = resolve_data_paths(Path("frontend.yaml"), cfg)
+        assert paths.profile_name == "frontend"
+        assert paths.db == DATA_DIR / "frontend.db"
+        assert paths.logs == LOG_DIR / "frontend"
+        assert paths.reports == cfg.report_dir / "frontend"
+
+    def test_explicit_db_wins(self):
+        cfg = self._make_cfg(db_path="/tmp/custom.db")
+        paths = resolve_data_paths(Path("frontend.yaml"), cfg)
+        assert paths.db == Path("/tmp/custom.db")
+
+    def test_config_name_overrides_stem(self):
+        cfg = self._make_cfg(config_name="backend-jobs")
+        paths = resolve_data_paths(Path("frontend.yaml"), cfg)
+        assert paths.profile_name == "backend-jobs"
+        assert paths.db == DATA_DIR / "backend-jobs.db"
+
+
+class TestAppConfigNewFields:
+    def test_config_name_optional(self):
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+        }
+        cfg = AppConfig(**raw)
+        assert cfg.config_name is None
+
+    def test_config_name_set(self):
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+            "config_name": "my-profile",
+        }
+        cfg = AppConfig(**raw)
+        assert cfg.config_name == "my-profile"
+
+    def test_config_path_private_attr(self):
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+        }
+        cfg = AppConfig(**raw)
+        assert cfg._config_path is None
+        cfg._config_path = Path("/test/config.yaml")
+        assert cfg._config_path == Path("/test/config.yaml")
+
+
+class TestLoadConfigStashesPath:
+    def test_load_config_sets_config_path(self, tmp_path):
+        import yaml as _yaml
+        from job_scout.config import load_config
+
+        config_file = tmp_path / "myconfig.yaml"
+        raw = {
+            "profile": {"name": "Test", "target_title": "Engineer"},
+            "search": {"terms": ["swe"], "locations": ["US"]},
+        }
+        config_file.write_text(_yaml.dump(raw))
+        cfg = load_config(config_file)
+        assert cfg._config_path == config_file

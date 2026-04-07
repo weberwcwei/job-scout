@@ -7,6 +7,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -22,6 +23,7 @@ from job_scout.config import (
     AppConfig,
     load_config,
     resolve_config_path,
+    resolve_data_paths,
     validate_quality,
 )
 from job_scout.db import JobDB
@@ -40,13 +42,24 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+_config_override: Path | None = None
+
 
 def _get_config():
-    return load_config(resolve_config_path())
+    path = _config_override or resolve_config_path()
+    cfg = load_config(path)
+    cfg._config_path = path
+    return cfg
 
 
 def _get_db(cfg: AppConfig | None = None):
-    path = cfg.db_path if cfg and cfg.db_path else DEFAULT_DB_PATH
+    if cfg and cfg._config_path:
+        paths = resolve_data_paths(cfg._config_path, cfg)
+        path = paths.db
+    elif cfg and cfg.db_path:
+        path = cfg.db_path
+    else:
+        path = DEFAULT_DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     return JobDB(path)
 
@@ -76,7 +89,8 @@ def scrape(
     cfg = _get_config()
     db = _get_db(cfg) if not dry_run else None
     scorer = JobScorer(cfg.profile)
-    notifier = Notifier(cfg.notifications)
+    paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
+    notifier = Notifier(cfg.notifications, profile_name=paths.profile_name)
 
     sites = [site] if site else cfg.search.sites
     terms = [term] if term else cfg.search.terms
@@ -492,7 +506,13 @@ def schedule(
 
     if install_flag:
         cfg = _get_config()
-        paths = scheduler.install(cfg.schedule, Path.cwd())
+        data_paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
+        paths = scheduler.install(
+            cfg.schedule,
+            Path.cwd(),
+            profile_name=data_paths.profile_name,
+            config_path=cfg._config_path,
+        )
         console.print("[green]Installed schedules:[/green]")
         for path in paths:
             console.print(f"  {path}")
@@ -504,7 +524,9 @@ def schedule(
             f"Report: daily at {cfg.schedule.report_hour:02d}:{cfg.schedule.report_minute:02d}"
         )
     elif uninstall_flag:
-        scheduler.uninstall()
+        cfg = _get_config()
+        data_paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
+        scheduler.uninstall(profile_name=data_paths.profile_name)
         console.print("[dim]All schedules removed.[/dim]")
     else:
         s = scheduler.status()
@@ -533,7 +555,8 @@ def init(
     ),
 ):
     """First-time setup: create config.yaml and initialize DB."""
-    target = XDG_CONFIG_PATH
+    target = _config_override or XDG_CONFIG_PATH
+    is_custom = _config_override is not None
 
     if target.exists():
         console.print(f"[yellow]config.yaml already exists at {target}[/yellow]")
@@ -541,16 +564,30 @@ def init(
         console.print("Run [bold]job-scout check[/bold] to validate it.")
         return
 
-    # Also check CWD for existing config to migrate
-    cwd_config = Path("config.yaml")
-    if cwd_config.exists():
-        console.print(
-            "[yellow]Found existing config.yaml in current directory.[/yellow]"
-        )
-        console.print(f"Moving to {target}...")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(cwd_config), str(target))
-        console.print(f"[green]Moved to {target}[/green]")
+    if not is_custom:
+        # Also check CWD for existing config to migrate
+        cwd_config = Path("config.yaml")
+        if cwd_config.exists():
+            console.print(
+                "[yellow]Found existing config.yaml in current directory.[/yellow]"
+            )
+            console.print(f"Moving to {target}...")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(cwd_config), str(target))
+            console.print(f"[green]Moved to {target}[/green]")
+        else:
+            project_dir = Path(__file__).resolve().parent.parent.parent
+            template = project_dir / (
+                "config.template.yaml" if full else "config.minimal.yaml"
+            )
+
+            if not template.exists():
+                console.print(f"[red]Template not found at {template}[/red]")
+                raise typer.Exit(1)
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(template, target)
+            console.print(f"[green]Created {target}[/green]")
     else:
         project_dir = Path(__file__).resolve().parent.parent.parent
         template = project_dir / (
@@ -576,12 +613,16 @@ def init(
     console.print("  2. Run  [bold]job-scout check[/bold] to validate your config")
     console.print("  3. Run  [bold]job-scout scrape --dry-run[/bold] to test")
     console.print("  4. Run  [bold]job-scout schedule --install[/bold] when ready")
+    if is_custom:
+        console.print(
+            f"\n[dim]Tip: pass --config {target} on all future commands.[/dim]"
+        )
 
 
 @app.command()
 def check():
     """Validate config.yaml and test connections."""
-    target = resolve_config_path()
+    target = _config_override or resolve_config_path()
     if not target.exists():
         console.print(
             "[red]No config.yaml found.[/red] Run [bold]job-scout init[/bold] first."
@@ -735,7 +776,7 @@ def rescore(
     ),
 ):
     """Re-score all jobs using current config (instant feedback loop for config tuning)."""
-    from job_scout.scheduler import LOG_DIR
+    from job_scout.config import LOG_DIR
 
     cfg = _get_config()
     db = _get_db(cfg)
@@ -844,10 +885,20 @@ def rescore(
 def digest():
     """Send daily digest of top job matches via email, Telegram, Slack, and/or Discord."""
     from datetime import timedelta
-    from job_scout.notify import send_email, send_telegram, send_slack, send_discord, _esc_md, _esc_slack, _esc_discord
+    from job_scout.notify import (
+        send_email,
+        send_telegram,
+        send_slack,
+        send_discord,
+        _esc_md,
+        _esc_slack,
+        _esc_discord,
+    )
 
     cfg = _get_config()
     db = _get_db(cfg)
+    data_paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
+    profile_name = data_paths.profile_name
 
     cutoff = datetime.now() - timedelta(hours=24)
     jobs = db.get_jobs(
@@ -863,10 +914,11 @@ def digest():
 
     display_jobs = jobs[:10]
     sent_any = False
+    prefix = f"job-scout ({profile_name})" if profile_name != "default" else "job-scout"
 
     # Email digest
     if cfg.notifications.email.enabled:
-        lines = [f"job-scout digest — {len(jobs)} match(es) in the last 24h\n"]
+        lines = [f"{prefix} digest — {len(jobs)} match(es) in the last 24h\n"]
         for job in display_jobs:
             salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
@@ -883,7 +935,7 @@ def digest():
             f"\n\U0001f4ca {stats['total_new']} unreviewed | {stats['scraped_24h']} scraped today"
         )
         if send_email(
-            subject=f"job-scout digest: {len(jobs)} match(es)",
+            subject=f"{prefix} digest: {len(jobs)} match(es)",
             body="\n".join(lines),
             cfg=cfg.notifications.email,
         ):
@@ -891,7 +943,11 @@ def digest():
 
     # Telegram digest
     if cfg.notifications.telegram.enabled:
-        tg_lines = [f"*job\\-scout digest* — {len(jobs)} match\\(es\\)\n"]
+        if profile_name != "default":
+            tg_header = f"*job\\-scout \\({_esc_md(profile_name)}\\) digest* — {len(jobs)} match\\(es\\)\n"
+        else:
+            tg_header = f"*job\\-scout digest* — {len(jobs)} match\\(es\\)\n"
+        tg_lines = [tg_header]
         for job in display_jobs:
             salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
@@ -914,7 +970,7 @@ def digest():
 
     # Slack digest
     if cfg.notifications.slack.enabled:
-        sl_lines = [f"*job-scout digest* — {len(jobs)} match(es)\n"]
+        sl_lines = [f"*{prefix} digest* — {len(jobs)} match(es)\n"]
         for job in display_jobs:
             salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
@@ -938,7 +994,7 @@ def digest():
 
     # Discord digest
     if cfg.notifications.discord.enabled:
-        dc_lines = [f"**job-scout digest** — {len(jobs)} match(es)\n"]
+        dc_lines = [f"**{prefix} digest** — {len(jobs)} match(es)\n"]
         for job in display_jobs:
             salary = job.compensation.display_concise if job.compensation else ""
             kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
@@ -973,6 +1029,8 @@ def report():
 
     cfg = _get_config()
     db = _get_db(cfg)
+    data_paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
+    profile_name = data_paths.profile_name
 
     cutoff = datetime.now() - timedelta(hours=24)
     jobs = db.get_jobs(status="new", min_score=40, since=cutoff, limit=None)
@@ -988,17 +1046,18 @@ def report():
     db.close()
 
     now = datetime.now().astimezone()
-    report_dir = cfg.report_dir
+    report_dir = data_paths.reports
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"{now.strftime('%Y-%m-%d')}.md"
 
+    profile_suffix = f" ({profile_name})" if profile_name != "default" else ""
     lines = [
         "---",
-        "title: Job Hunt Daily Report",
+        f"title: Job Hunt Daily Report{profile_suffix}",
         f"generated: {now.isoformat()}",
         "---",
         "",
-        f"# Job Hunt Report — {now.strftime('%A, %B %-d, %Y')}",
+        f"# Job Hunt Report{profile_suffix} — {now.strftime('%A, %B %-d, %Y')}",
         "",
         "## Summary",
         "",
@@ -1067,9 +1126,15 @@ def report():
 
 
 @app.callback()
-def main():
+def main(
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Path to config YAML file"),
+    ] = None,
+):
     """job-scout — Lightweight job scraping and alerting."""
-    pass
+    global _config_override
+    _config_override = config
 
 
 if __name__ == "__main__":

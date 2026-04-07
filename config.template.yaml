@@ -103,4 +103,5 @@ schedule:
   start_hour: 8                   # don't run before this hour (local time)
   end_hour: 23                    # don't run after this hour (local time)
 
+# config_name: my-search                 # override profile name (default: derived from filename)
 # db_path: /path/to/custom/job-scout.db  # override default DB location
