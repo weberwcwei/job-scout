@@ -92,7 +92,7 @@ class TestComputeContentKey:
 
     def test_none_state(self):
         """None state treated as empty string."""
-        key1 = compute_content_key("Engineer", "Acme", "SF", "", "", "desc")
+        key1 = compute_content_key("Engineer", "Acme", "SF", None, "", "desc")
         key2 = compute_content_key("Engineer", "Acme", "SF", "", "", "desc")
         assert key1 == key2
 

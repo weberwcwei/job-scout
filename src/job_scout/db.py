@@ -15,7 +15,6 @@ from job_scout.models import (
     Location,
     ScrapeRun,
     Site,
-    compute_content_key,
 )
 
 SCHEMA_SQL = """
@@ -418,26 +417,28 @@ class JobDB:
     # --- Content dedup ---
 
     def backfill_content_keys(self) -> int:
-        """Compute content_key for rows where it is NULL. Returns count updated."""
+        """Compute content_key for rows where it is NULL. Returns count updated.
+
+        Uses _row_to_job to ensure Location normalization is applied before
+        hashing, so backfilled keys match keys generated at insert time.
+        """
         rows = self.conn.execute(
-            "SELECT id, title, company, city, state, date_posted, description "
-            "FROM jobs WHERE content_key IS NULL"
+            "SELECT * FROM jobs WHERE content_key IS NULL"
         ).fetchall()
         if not rows:
             return 0
-        for row in rows:
-            key = compute_content_key(
-                row["title"],
-                row["company"],
-                row["city"] or "",
-                row["state"] or "",
-                row["date_posted"] or "",
-                row["description"] or "",
-            )
-            self.conn.execute(
-                "UPDATE jobs SET content_key = ? WHERE id = ?", (key, row["id"])
-            )
-        self.conn.commit()
+        self.conn.execute("BEGIN")
+        try:
+            for row in rows:
+                job = self._row_to_job(row)
+                self.conn.execute(
+                    "UPDATE jobs SET content_key = ? WHERE id = ?",
+                    (job.content_key, row["id"]),
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
         return len(rows)
 
     def find_duplicates(self) -> list[list[dict]]:
