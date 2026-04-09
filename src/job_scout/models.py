@@ -3,10 +3,27 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+
+def compute_content_key(
+    title: str, company: str, city: str, state: str, date_posted: str, description: str
+) -> str:
+    """SHA256 fingerprint of normalized job content for cross-source dedup."""
+    title_norm = re.sub(r"\s+", " ", title.lower().strip())
+    company_norm = re.sub(r"\s+", " ", company.lower().strip())
+    city_norm = re.sub(r"\s+", " ", city.lower().strip())
+    state_norm = state.lower().strip() if state else ""
+    date_norm = date_posted or ""
+    desc_norm = re.sub(r"\s+", " ", description[:500].lower().strip())
+    raw = (
+        f"{title_norm}|{company_norm}|{city_norm}|{state_norm}|{date_norm}|{desc_norm}"
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 class Site(str, Enum):
@@ -281,6 +298,18 @@ class Job(BaseModel):
     def dedup_key(self) -> str:
         raw = f"{self.source.value}:{self.source_id}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    @computed_field
+    @property
+    def content_key(self) -> str:
+        return compute_content_key(
+            self.title,
+            self.company,
+            self.location.city or "",
+            self.location.state or "",
+            self.date_posted.isoformat() if self.date_posted else "",
+            self.description,
+        )
 
 
 class ScrapeRun(BaseModel):

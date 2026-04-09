@@ -758,6 +758,48 @@ def check():
 
 
 @app.command()
+def dedup(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be removed without deleting"
+    ),
+    backfill_only: bool = typer.Option(
+        False, "--backfill-only", help="Only backfill content_keys, don't deduplicate"
+    ),
+):
+    """Deduplicate jobs by content (title + company + location + date + description)."""
+    cfg = _get_config()
+    db = _get_db(cfg)
+
+    # Step 1: Backfill content_keys for rows missing them
+    backfilled = db.backfill_content_keys()
+    if backfilled:
+        console.print(f"Backfilled content_key for {backfilled} row(s).")
+    else:
+        console.print("All rows already have content_key.")
+
+    if backfill_only:
+        db.close()
+        return
+
+    # Step 2: Deduplicate
+    prefix = "[DRY RUN] " if dry_run else ""
+    result = db.deduplicate(dry_run=dry_run)
+
+    if result["groups"] == 0:
+        console.print(f"{prefix}No duplicate groups found.")
+    else:
+        console.print(
+            f"{prefix}Found {result['groups']} duplicate group(s): "
+            f"{result['removed']} row(s) removed, {result['kept']} kept."
+        )
+
+    total = db.conn.execute("SELECT COUNT(*) as cnt FROM jobs").fetchone()["cnt"]
+    console.print(f"Total jobs in DB: {total}")
+
+    db.close()
+
+
+@app.command()
 def rescore(
     status: str = typer.Option(None, help="Filter by status: new, applied, rejected"),
     site: str = typer.Option(None, "--site", help="Filter by source site"),
@@ -1118,9 +1160,7 @@ def report():
         from job_scout.notify import send_email
 
         prefix = (
-            f"job-scout ({profile_name})"
-            if profile_name != "default"
-            else "job-scout"
+            f"job-scout ({profile_name})" if profile_name != "default" else "job-scout"
         )
         summary = (
             f"High: {len(high)}, Worth review: {len(medium)}, "

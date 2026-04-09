@@ -15,6 +15,7 @@ from job_scout.models import (
     Location,
     ScrapeRun,
     Site,
+    compute_content_key,
 )
 
 SCHEMA_SQL = """
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     notes           TEXT DEFAULT '',
     applied_date    TEXT,
     search_term     TEXT,
+    content_key     TEXT,
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now'))
 );
@@ -91,6 +93,13 @@ class JobDB:
         if "search_term" not in cols:
             self.conn.execute("ALTER TABLE jobs ADD COLUMN search_term TEXT")
             self.conn.commit()
+        if "content_key" not in cols:
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN content_key TEXT")
+            self.conn.commit()
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_content_key ON jobs(content_key)"
+        )
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -118,6 +127,26 @@ class JobDB:
             self.conn.commit()
             return False, existing["id"]
 
+        # Content-based soft dedup (skip for short descriptions)
+        if job.description and len(job.description) > 100:
+            cur = self.conn.execute(
+                "SELECT id, status, score FROM jobs WHERE content_key = ?",
+                (job.content_key,),
+            )
+            content_match = cur.fetchone()
+            if content_match:
+                if job.score > content_match["score"]:
+                    self.conn.execute(
+                        "UPDATE jobs SET score = ?, score_breakdown = ?, updated_at = datetime('now') WHERE id = ?",
+                        (
+                            job.score,
+                            json.dumps(job.score_breakdown),
+                            content_match["id"],
+                        ),
+                    )
+                    self.conn.commit()
+                return False, content_match["id"]
+
         comp = job.compensation
         cur = self.conn.execute(
             """INSERT INTO jobs (
@@ -125,8 +154,8 @@ class JobDB:
                 city, state, country, is_remote, description, job_type,
                 comp_min, comp_max, comp_currency, comp_interval,
                 date_posted, date_scraped, score, score_breakdown, status, notes,
-                search_term
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                search_term, content_key
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.dedup_key,
                 job.source.value,
@@ -151,6 +180,7 @@ class JobDB:
                 job.status,
                 job.notes,
                 job.search_term,
+                job.content_key,
             ),
         )
         self.conn.commit()
@@ -384,6 +414,101 @@ class JobDB:
             (datetime.now().isoformat(), jobs_found, jobs_new, error, run_id),
         )
         self.conn.commit()
+
+    # --- Content dedup ---
+
+    def backfill_content_keys(self) -> int:
+        """Compute content_key for rows where it is NULL. Returns count updated.
+
+        Normalizes location via the Location model before hashing so
+        backfilled keys match keys generated at insert time.
+        """
+        rows = self.conn.execute(
+            "SELECT id, title, company, city, state, country, is_remote, "
+            "date_posted, description FROM jobs WHERE content_key IS NULL"
+        ).fetchall()
+        if not rows:
+            return 0
+        self.conn.execute("BEGIN")
+        try:
+            for row in rows:
+                loc = Location(
+                    city=row["city"],
+                    state=row["state"],
+                    country=row["country"],
+                    is_remote=bool(row["is_remote"]),
+                )
+                key = compute_content_key(
+                    row["title"],
+                    row["company"],
+                    loc.city or "",
+                    loc.state or "",
+                    row["date_posted"] or "",
+                    row["description"] or "",
+                )
+                self.conn.execute(
+                    "UPDATE jobs SET content_key = ? WHERE id = ?",
+                    (key, row["id"]),
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return len(rows)
+
+    def find_duplicates(self) -> list[list[dict]]:
+        """Return groups of rows sharing a content_key (count > 1)."""
+        dup_keys = self.conn.execute(
+            "SELECT content_key, COUNT(*) as cnt FROM jobs "
+            "WHERE content_key IS NOT NULL "
+            "GROUP BY content_key HAVING cnt > 1"
+        ).fetchall()
+        groups = []
+        for row in dup_keys:
+            members = self.conn.execute(
+                "SELECT id, status, score, date_scraped FROM jobs WHERE content_key = ?",
+                (row["content_key"],),
+            ).fetchall()
+            groups.append([dict(m) for m in members])
+        return groups
+
+    def deduplicate(self, *, dry_run: bool = False) -> dict:
+        """Remove content-duplicate rows, keeping the best per group.
+
+        Returns dict with keys: groups, removed, kept.
+        """
+        groups = self.find_duplicates()
+        total_removed = 0
+        for group in groups:
+            keeper_id = self._pick_keeper(group)
+            remove_ids = [m["id"] for m in group if m["id"] != keeper_id]
+            total_removed += len(remove_ids)
+            if not dry_run:
+                placeholders = ",".join("?" * len(remove_ids))
+                self.conn.execute(
+                    f"DELETE FROM jobs WHERE id IN ({placeholders})", remove_ids
+                )
+        if not dry_run and groups:
+            self.conn.commit()
+        return {
+            "groups": len(groups),
+            "removed": total_removed,
+            "kept": len(groups),
+        }
+
+    @staticmethod
+    def _pick_keeper(rows: list[dict]) -> int:
+        """Pick the best row to keep. Priority: applied > new > filtered > rejected,
+        then highest score, then earliest date_scraped."""
+        status_priority = {"applied": 0, "new": 1, "filtered": 2, "rejected": 3}
+        return min(
+            rows,
+            key=lambda r: (
+                status_priority.get(r["status"], 99),
+                -r["score"],
+                r["date_scraped"],
+            ),
+        )["id"]
 
     # --- Helpers ---
 
