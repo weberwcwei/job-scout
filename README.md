@@ -21,8 +21,12 @@
 
 ## Changelog
 
+**2026-04-09**
+- Content-based deduplication: catches identical job postings with different source IDs (Indeed key rotation). New `dedup` command to clean existing duplicates
+
 **2026-04-07**
 - Location normalization: auto-corrects scraped city/state/country data via model validator
+- Daily report is emailed with the report file attached when email notifications are enabled
 
 **2026-04-06**
 - Multi-config (`--config`), Slack/Discord webhooks, `report` and `export` commands, digest stats footer, multi-plist scheduler, zero-result warnings
@@ -235,9 +239,11 @@ job-scout list                 # see your latest job matches
 job-scout view 42              # full details for a job
 job-scout apply 42             # mark a job as applied
 job-scout rescore              # re-score all jobs after config changes
+job-scout dedup --dry-run      # preview duplicate cleanup
+job-scout dedup                # remove content-identical duplicates
 job-scout stats                # see your numbers
 job-scout digest               # send today's top matches now
-job-scout report               # generate a daily markdown report
+job-scout report               # generate and email a daily report
 job-scout export -o jobs.csv   # export jobs to CSV or JSON
 ```
 
