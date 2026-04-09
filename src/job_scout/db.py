@@ -15,6 +15,7 @@ from job_scout.models import (
     Location,
     ScrapeRun,
     Site,
+    compute_content_key,
 )
 
 SCHEMA_SQL = """
@@ -419,21 +420,35 @@ class JobDB:
     def backfill_content_keys(self) -> int:
         """Compute content_key for rows where it is NULL. Returns count updated.
 
-        Uses _row_to_job to ensure Location normalization is applied before
-        hashing, so backfilled keys match keys generated at insert time.
+        Normalizes location via the Location model before hashing so
+        backfilled keys match keys generated at insert time.
         """
         rows = self.conn.execute(
-            "SELECT * FROM jobs WHERE content_key IS NULL"
+            "SELECT id, title, company, city, state, country, is_remote, "
+            "date_posted, description FROM jobs WHERE content_key IS NULL"
         ).fetchall()
         if not rows:
             return 0
         self.conn.execute("BEGIN")
         try:
             for row in rows:
-                job = self._row_to_job(row)
+                loc = Location(
+                    city=row["city"],
+                    state=row["state"],
+                    country=row["country"],
+                    is_remote=bool(row["is_remote"]),
+                )
+                key = compute_content_key(
+                    row["title"],
+                    row["company"],
+                    loc.city or "",
+                    loc.state or "",
+                    row["date_posted"] or "",
+                    row["description"] or "",
+                )
                 self.conn.execute(
                     "UPDATE jobs SET content_key = ? WHERE id = ?",
-                    (job.content_key, row["id"]),
+                    (key, row["id"]),
                 )
             self.conn.commit()
         except Exception:
