@@ -239,7 +239,7 @@ def send_email(
 
     smtp = None
     try:
-        smtp = smtplib.SMTP(cfg.smtp_host, cfg.smtp_port)
+        smtp = smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=10)
         smtp.starttls()
         smtp.login(cfg.username, cfg.app_password)
         smtp.send_message(msg)
