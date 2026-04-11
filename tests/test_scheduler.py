@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 
-from job_scout.config import ScheduleConfig
+from job_scout.config import BotConfig, NotificationsConfig, ScheduleConfig
 
 
 class TestGeneratePlists:
@@ -355,6 +355,8 @@ class TestScheduleCLI:
         cfg.config_name = None
         cfg.db_path = None
         cfg.report_dir = Path.home() / ".local" / "share" / "job-scout" / "reports"
+        cfg.notifications = NotificationsConfig()
+        cfg.bot = BotConfig()
 
         with (
             patch("job_scout.cli._get_config", return_value=cfg),

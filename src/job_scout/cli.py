@@ -571,6 +571,11 @@ def schedule(
             profile_name=data_paths.profile_name,
             config_path=cfg._config_path,
         )
+        # Install bot daemon if this profile has telegram + bot configured
+        tg = cfg.notifications.telegram
+        if tg.enabled and tg.bot_token and tg.chat_id and cfg.bot.resolve_api_key():
+            bot_path = scheduler.install_bot(Path.cwd(), config_path=cfg._config_path)
+            console.print(f"[green]Installed bot daemon:[/green]\n  {bot_path}")
         console.print("[green]Installed schedules:[/green]")
         for path in paths:
             console.print(f"  {path}")

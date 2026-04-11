@@ -106,8 +106,9 @@ def generate_plists(
 
 def generate_bot_plist(
     project_dir: Path | None = None,
+    config_path: Path | None = None,
 ) -> tuple[str, dict]:
-    """Generate the global bot daemon plist. Returns (label, plist_dict)."""
+    """Generate the bot daemon plist. Returns (label, plist_dict)."""
     if project_dir is None:
         project_dir = Path.cwd()
 
@@ -115,9 +116,14 @@ def generate_bot_plist(
     log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    args = [python_path, "-m", "job_scout"]
+    if config_path:
+        args += ["--config", str(config_path.resolve())]
+    args.append("bot")
+
     plist = {
         "Label": BOT_LABEL,
-        "ProgramArguments": [python_path, "-m", "job_scout", "bot"],
+        "ProgramArguments": args,
         "KeepAlive": True,
         "RunAtLoad": True,
         "StandardOutPath": str(log_dir / "bot-stdout.log"),
@@ -156,10 +162,12 @@ def install(
     return paths
 
 
-def install_bot(project_dir: Path | None = None) -> Path:
-    """Install the global bot daemon plist. Returns plist path."""
+def install_bot(
+    project_dir: Path | None = None, config_path: Path | None = None
+) -> Path:
+    """Install the bot daemon plist. Returns plist path."""
     PLIST_DIR.mkdir(parents=True, exist_ok=True)
-    label, plist_data = generate_bot_plist(project_dir)
+    label, plist_data = generate_bot_plist(project_dir, config_path)
     path = PLIST_DIR / f"{label}.plist"
     subprocess.run(["launchctl", "unload", str(path)], capture_output=True)
     with open(path, "wb") as f:
