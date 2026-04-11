@@ -480,10 +480,14 @@ def bot(
         typer.Option("--config-dir", help="Directory to scan for config files"),
     ] = None,
 ):
-    """Start the Telegram bot for receiving status updates."""
+    """Start the Telegram bot for receiving status updates.
+
+    Use -c to run for a single profile: job-scout -c lucy.yaml bot
+    Without -c, scans all configs in the config directory.
+    """
     from job_scout.bot import TelegramBot
 
-    tg_bot = TelegramBot(config_dir=config_dir)
+    tg_bot = TelegramBot(config_dir=config_dir, config_override=_config_override)
     tg_bot.run()
 
 

@@ -45,8 +45,13 @@ class ProfileContext:
 class TelegramBot:
     """Long-polling Telegram bot that routes status updates to per-profile DBs."""
 
-    def __init__(self, config_dir: Path | None = None):
+    def __init__(
+        self,
+        config_dir: Path | None = None,
+        config_override: Path | None = None,
+    ):
         self.config_dir = config_dir or XDG_CONFIG_DIR
+        self._config_override = config_override
         self._profiles: dict[str, ProfileContext] = {}  # chat_id -> context
         self._bot_tokens: set[str] = set()
         self._api_key: str = ""
@@ -55,7 +60,10 @@ class TelegramBot:
 
     def _scan_configs(self) -> None:
         """Scan config dir for all profiles and build routing map."""
-        config_files = sorted(self.config_dir.glob("*.yaml"))
+        if self._config_override:
+            config_files = [self._config_override]
+        else:
+            config_files = sorted(self.config_dir.glob("*.yaml"))
         if not config_files:
             raise SystemExit(f"No config files found in {self.config_dir}")
 
@@ -103,64 +111,73 @@ class TelegramBot:
         )
 
     def run(self) -> None:
-        """Main blocking polling loop."""
-        offset = self._load_offset()
+        """Main blocking polling loop — polls all bot tokens round-robin."""
+        offsets: dict[str, int] = {}
+        for token in self._bot_tokens:
+            offsets[token] = self._load_offset(token)
+
         timeout = self._bot_config.poll_timeout
-        backoff = 1
+        # Short poll timeout when multiple tokens (round-robin fairly)
+        per_token_timeout = min(timeout, 5) if len(self._bot_tokens) > 1 else timeout
+        tokens = list(self._bot_tokens)
 
-        # Use the first bot token (typical: one bot serves all profiles)
-        bot_token = next(iter(self._bot_tokens))
-        url = f"https://api.telegram.org/bot{bot_token}/getUpdates"
-
-        log.info("Starting Telegram long-polling...")
+        log.info(
+            f"Starting Telegram long-polling ({len(tokens)} token(s), "
+            f"{per_token_timeout}s per poll)..."
+        )
         while True:
-            try:
-                resp = httpx.get(
-                    url,
-                    params={
-                        "offset": offset,
-                        "timeout": timeout,
-                        "allowed_updates": '["message"]',
-                    },
-                    timeout=timeout + 10,
-                )
-                if resp.status_code != 200:
-                    log.error(f"getUpdates returned {resp.status_code}: {resp.text}")
-                    time.sleep(backoff)
-                    backoff = min(backoff * 2, 60)
-                    continue
+            for bot_token in tokens:
+                try:
+                    self._poll_once(bot_token, offsets, per_token_timeout)
+                except httpx.TimeoutException:
+                    continue  # normal for long-polling
+                except KeyboardInterrupt:
+                    log.info("Bot stopped by user")
+                    return
+                except Exception as e:
+                    log.error(f"Polling error: {e}")
+                    time.sleep(1)
 
-                data = resp.json()
-                if not data.get("ok"):
-                    log.error(f"getUpdates not ok: {data}")
-                    time.sleep(backoff)
-                    backoff = min(backoff * 2, 60)
-                    continue
+    def _poll_once(self, bot_token: str, offsets: dict[str, int], timeout: int) -> None:
+        """Poll one bot token for updates."""
+        url = f"https://api.telegram.org/bot{bot_token}/getUpdates"
+        resp = httpx.get(
+            url,
+            params={
+                "offset": offsets[bot_token],
+                "timeout": timeout,
+                "allowed_updates": '["message"]',
+            },
+            timeout=timeout + 10,
+        )
 
-                backoff = 1  # reset on success
-                updates = data.get("result", [])
+        if resp.status_code == 409:
+            # Telegram race condition: previous session not fully closed.
+            # Brief pause then move on — harmless.
+            time.sleep(1)
+            return
+        if resp.status_code != 200:
+            log.error(f"getUpdates returned {resp.status_code}: {resp.text}")
+            time.sleep(1)
+            return
 
-                for update in updates:
-                    offset = update["update_id"] + 1
-                    msg = update.get("message", {})
-                    chat_id = str(msg.get("chat", {}).get("id", ""))
-                    text = msg.get("text", "")
+        data = resp.json()
+        if not data.get("ok"):
+            log.error(f"getUpdates not ok: {data}")
+            return
 
-                    if chat_id and text:
-                        self._process_message(bot_token, chat_id, text)
+        updates = data.get("result", [])
+        for update in updates:
+            offsets[bot_token] = update["update_id"] + 1
+            msg = update.get("message", {})
+            chat_id = str(msg.get("chat", {}).get("id", ""))
+            text = msg.get("text", "")
 
-                if updates:
-                    self._persist_offset(offset)
+            if chat_id and text:
+                self._process_message(bot_token, chat_id, text)
 
-            except httpx.TimeoutException:
-                continue  # normal for long-polling
-            except KeyboardInterrupt:
-                log.info("Bot stopped by user")
-                break
-            except Exception as e:
-                log.error(f"Polling error: {e}")
-                time.sleep(backoff)
-                backoff = min(backoff * 2, 60)
+        if updates:
+            self._persist_offset(offsets[bot_token], bot_token)
 
     def _process_message(self, bot_token: str, chat_id: str, text: str) -> None:
         """Route an incoming message to the correct profile and process it."""
@@ -255,17 +272,25 @@ class TelegramBot:
         except Exception as e:
             log.error(f"Failed to send reply: {e}")
 
-    def _load_offset(self) -> int:
+    def _offset_file(self, bot_token: str) -> Path:
+        """Per-token offset file path."""
+        # Use last 8 chars of token as a safe suffix
+        suffix = bot_token[-8:]
+        return OFFSET_DIR / f"update-offset-{suffix}.json"
+
+    def _load_offset(self, bot_token: str = "") -> int:
         """Load the last update offset from disk."""
-        if OFFSET_FILE.exists():
+        path = self._offset_file(bot_token) if bot_token else OFFSET_FILE
+        if path.exists():
             try:
-                data = json.loads(OFFSET_FILE.read_text())
+                data = json.loads(path.read_text())
                 return data.get("last_update_id", 0)
             except (json.JSONDecodeError, KeyError):
-                log.warning("Corrupt offset file, starting from 0")
+                log.warning(f"Corrupt offset file {path}, starting from 0")
         return 0
 
-    def _persist_offset(self, offset: int) -> None:
+    def _persist_offset(self, offset: int, bot_token: str = "") -> None:
         """Persist the update offset to disk."""
         OFFSET_DIR.mkdir(parents=True, exist_ok=True)
-        OFFSET_FILE.write_text(json.dumps({"last_update_id": offset}))
+        path = self._offset_file(bot_token) if bot_token else OFFSET_FILE
+        path.write_text(json.dumps({"last_update_id": offset}))
