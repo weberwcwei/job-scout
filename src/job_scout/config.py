@@ -145,7 +145,7 @@ class NotificationsConfig(BaseModel):
 
 class BotConfig(BaseModel):
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
     poll_timeout: int = 30
     job_context_days: int = 14
 
