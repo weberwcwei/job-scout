@@ -13,6 +13,7 @@ LABEL_PREFIX = "com.user.job-scout"
 LEGACY_LABEL = "com.user.job-scout"  # old single-plist label
 PLIST_DIR = Path.home() / "Library" / "LaunchAgents"
 TASKS = ("scrape", "digest", "report")
+BOT_LABEL = f"{LABEL_PREFIX}.bot"
 
 # Keep PLIST_LABELS for backwards compat with tests referencing it
 PLIST_LABELS = {k: f"{LABEL_PREFIX}.{k}" for k in TASKS}
@@ -103,6 +104,28 @@ def generate_plists(
     }
 
 
+def generate_bot_plist(
+    project_dir: Path | None = None,
+) -> tuple[str, dict]:
+    """Generate the global bot daemon plist. Returns (label, plist_dict)."""
+    if project_dir is None:
+        project_dir = Path.cwd()
+
+    python_path = _get_python(project_dir)
+    log_dir = LOG_DIR
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    plist = {
+        "Label": BOT_LABEL,
+        "ProgramArguments": [python_path, "-m", "job_scout", "bot"],
+        "KeepAlive": True,
+        "RunAtLoad": True,
+        "StandardOutPath": str(log_dir / "bot-stdout.log"),
+        "StandardErrorPath": str(log_dir / "bot-stderr.log"),
+    }
+    return BOT_LABEL, plist
+
+
 def install(
     schedule: ScheduleConfig,
     project_dir: Path | None = None,
@@ -133,8 +156,28 @@ def install(
     return paths
 
 
+def install_bot(project_dir: Path | None = None) -> Path:
+    """Install the global bot daemon plist. Returns plist path."""
+    PLIST_DIR.mkdir(parents=True, exist_ok=True)
+    label, plist_data = generate_bot_plist(project_dir)
+    path = PLIST_DIR / f"{label}.plist"
+    subprocess.run(["launchctl", "unload", str(path)], capture_output=True)
+    with open(path, "wb") as f:
+        plistlib.dump(plist_data, f)
+    subprocess.run(["launchctl", "load", str(path)], check=True)
+    return path
+
+
+def uninstall_bot() -> None:
+    """Remove the bot daemon plist."""
+    path = PLIST_DIR / f"{BOT_LABEL}.plist"
+    if path.exists():
+        subprocess.run(["launchctl", "unload", str(path)], capture_output=True)
+        path.unlink()
+
+
 def uninstall(profile_name: str = "default") -> None:
-    """Remove plists for a profile, plus legacy single plist."""
+    """Remove plists for a profile, plus legacy single plist and bot."""
     labels = plist_labels(profile_name)
     for label in labels.values():
         path = PLIST_DIR / f"{label}.plist"
@@ -147,6 +190,10 @@ def uninstall(profile_name: str = "default") -> None:
     if legacy_path.exists():
         subprocess.run(["launchctl", "unload", str(legacy_path)], capture_output=True)
         legacy_path.unlink()
+
+    # Remove bot plist (global, only on default profile uninstall)
+    if profile_name == "default":
+        uninstall_bot()
 
 
 def status(profile_name: str = "default") -> dict[str, dict]:
@@ -172,4 +219,23 @@ def status(profile_name: str = "default") -> dict[str, dict]:
             "plist_path": str(path),
         }
     result["log_dir"] = str(log_dir)
+
+    # Bot status (global, shown for all profiles)
+    bot_path = PLIST_DIR / f"{BOT_LABEL}.plist"
+    bot_installed = bot_path.exists()
+    bot_running = False
+    if bot_installed:
+        check = subprocess.run(
+            ["launchctl", "list", BOT_LABEL],
+            capture_output=True,
+            text=True,
+        )
+        bot_running = check.returncode == 0
+    result["bot"] = {
+        "label": BOT_LABEL,
+        "installed": bot_installed,
+        "running": bot_running,
+        "plist_path": str(bot_path),
+    }
+
     return result

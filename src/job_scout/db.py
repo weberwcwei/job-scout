@@ -238,8 +238,8 @@ class JobDB:
         if notes:
             updates.append("notes = ?")
             params.append(notes)
-        if status == "applied":
-            updates.append("applied_date = ?")
+        if status in ("applied", "interview", "offer"):
+            updates.append("applied_date = COALESCE(applied_date, ?)")
             params.append(date.today().isoformat())
         params.append(job_id)
         self.conn.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", params)
@@ -247,6 +247,19 @@ class JobDB:
 
     def mark_applied(self, job_id: int, notes: str = "") -> None:
         self.update_status(job_id, "applied", notes)
+
+    def get_recent_jobs(self, days: int = 14, limit: int = 50) -> list[Job]:
+        """Return recent jobs + any with active status, for bot LLM context."""
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        rows = self.conn.execute(
+            """SELECT * FROM jobs
+            WHERE date_scraped >= ?
+               OR status IN ('applied', 'interview', 'offer')
+            ORDER BY score DESC, date_posted DESC
+            LIMIT ?""",
+            (cutoff, limit),
+        ).fetchall()
+        return [self._row_to_job(r) for r in rows]
 
     def get_stats(self) -> dict:
         stats = {}
@@ -500,7 +513,14 @@ class JobDB:
     def _pick_keeper(rows: list[dict]) -> int:
         """Pick the best row to keep. Priority: applied > new > filtered > rejected,
         then highest score, then earliest date_scraped."""
-        status_priority = {"applied": 0, "new": 1, "filtered": 2, "rejected": 3}
+        status_priority = {
+            "offer": 0,
+            "interview": 1,
+            "applied": 2,
+            "new": 3,
+            "filtered": 4,
+            "rejected": 5,
+        }
         return min(
             rows,
             key=lambda r: (

@@ -143,6 +143,17 @@ class NotificationsConfig(BaseModel):
     discord: DiscordConfig = DiscordConfig()
 
 
+class BotConfig(BaseModel):
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    poll_timeout: int = 30
+    job_context_days: int = 14
+
+    def resolve_api_key(self) -> str:
+        """Return API key: env var GEMINI_API_KEY first, then config value."""
+        return os.environ.get("GEMINI_API_KEY", "") or self.gemini_api_key
+
+
 class ScheduleConfig(BaseModel):
     interval_hours: int = 6
     digest_hour: int = 9
@@ -158,6 +169,7 @@ class AppConfig(BaseModel):
     scoring: ScoringConfig = ScoringConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     schedule: ScheduleConfig = ScheduleConfig()
+    bot: BotConfig = BotConfig()
     db_path: Path | None = None
     report_dir: Path = Path.home() / ".local" / "share" / "job-scout" / "reports"
     config_name: str | None = None

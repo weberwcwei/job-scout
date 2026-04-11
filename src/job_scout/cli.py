@@ -432,6 +432,62 @@ def reject(
 
 
 @app.command()
+def interview(
+    job_id: int = typer.Argument(..., help="Job ID"),
+    notes: str = typer.Option("", help="Interview notes"),
+):
+    """Mark a job as interview stage."""
+    cfg = _get_config()
+    db = _get_db(cfg)
+    job = db.get_job(job_id)
+    if not job:
+        console.print(f"[red]Job #{job_id} not found.[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    db.update_status(job_id, "interview", notes)
+    db.close()
+    console.print(
+        f"[cyan]Job #{job_id} ({job.company}: {job.title}) marked as interview.[/cyan]"
+    )
+
+
+@app.command()
+def offer(
+    job_id: int = typer.Argument(..., help="Job ID"),
+    notes: str = typer.Option("", help="Offer notes"),
+):
+    """Mark a job as offer received."""
+    cfg = _get_config()
+    db = _get_db(cfg)
+    job = db.get_job(job_id)
+    if not job:
+        console.print(f"[red]Job #{job_id} not found.[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    db.update_status(job_id, "offer", notes)
+    db.close()
+    console.print(
+        f"[green]Job #{job_id} ({job.company}: {job.title}) marked as offer![/green]"
+    )
+
+
+@app.command()
+def bot(
+    config_dir: Annotated[
+        Path | None,
+        typer.Option("--config-dir", help="Directory to scan for config files"),
+    ] = None,
+):
+    """Start the Telegram bot for receiving status updates."""
+    from job_scout.bot import TelegramBot
+
+    tg_bot = TelegramBot(config_dir=config_dir)
+    tg_bot.run()
+
+
+@app.command()
 def stats():
     """Show summary statistics."""
     cfg = _get_config()

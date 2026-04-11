@@ -212,9 +212,7 @@ def send_telegram(text: str, cfg) -> bool:
         return False
 
 
-def send_email(
-    subject: str, body: str, cfg, attachment: Path | None = None
-) -> bool:
+def send_email(subject: str, body: str, cfg, attachment: Path | None = None) -> bool:
     """Send a plain-text email via Gmail SMTP, optionally with a file attachment."""
     if not cfg.username or not cfg.app_password or not cfg.to_address:
         log.error(
