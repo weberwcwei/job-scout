@@ -35,7 +35,7 @@
 **2026-04-06**
 - Multi-config (`--config`), Slack/Discord webhooks, `report` and `export` commands, digest stats footer, multi-plist scheduler, zero-result warnings
 
-**2026-04-05**
+**Week of 2026-03-30**
 - `rescore` command, dealbreaker storage, config quality warnings, XDG config path
 
 ---
