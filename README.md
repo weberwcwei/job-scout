@@ -21,6 +21,10 @@
 
 ## Changelog
 
+**2026-04-12**
+- Telegram bot: natural-language job status queries via Gemini LLM, multi-profile support with `--config`, hardened prompt against injection
+- SMTP timeout to prevent indefinite hangs on email notifications
+
 **2026-04-09**
 - Content-based deduplication: catches identical job postings with different source IDs (Indeed key rotation). New `dedup` command to clean existing duplicates
 
