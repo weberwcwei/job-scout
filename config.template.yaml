@@ -48,26 +48,26 @@ search:
   locations:
     - "United States"             # search location(s)
   sites:
-    - linkedin
-    - indeed
-    - google
-    - glassdoor
-    - ziprecruiter
-    # - bayt                        # uncomment for international (MENA) jobs
+    - linkedin                     # ✅ works without TLS
+    - indeed                       # ✅ works without TLS (uses hardcoded API key)
+    - jora                         # ✅ AU job board (server-rendered HTML)
   results_per_site: 25            # jobs to fetch per site per search term
   hours_old: 72                   # only include jobs posted in the last N hours
   distance_miles: 50
+  country: US                     # country code for Indeed API (e.g. AU, GB, CA); must match your locations
+  expire_days: 30                 # mark new/filtered jobs older than this (first seen) as expired on each scrape
 
 scraping:
-  delay_min_seconds: 3.0          # wait at least this long between requests (be polite)
-  delay_max_seconds: 8.0
+  delay_min_seconds: 0.5          # wait at least this long between requests (be polite)
+  delay_max_seconds: 2.0
   request_timeout: 15
   max_retries: 2
   max_pages: 3                      # max pages to fetch per site (higher = more results, slower)
   fetch_descriptions: true
   proxies: []                       # round-robin proxy rotation: ["http://user:pass@host:port"]
-  use_tls_fingerprinting: false     # browser-like TLS fingerprints (pip install job-scout[tls])
-  max_workers: 3                    # concurrent scraper threads
+  use_tls_fingerprinting: true      # browser-like TLS fingerprints (pip install job-scout[tls]) — required for Jora full descriptions
+  max_workers: 6                    # concurrent scraper threads
+  min_request_interval_seconds: 1.0 # min gap between requests to the same host, across all workers (prevents 429 bursts)
 
 scoring:
   min_alert_score: 45             # send email alert when a job scores at or above this

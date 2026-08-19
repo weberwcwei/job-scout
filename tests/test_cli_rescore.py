@@ -218,3 +218,16 @@ class TestRescoreOutput:
         result = runner.invoke(app, ["rescore"])
         assert "no changes" in result.output
         assert list(log_dir.glob("rescore-*.log")) == []
+
+    def test_rejected_jobs_not_rescored(self, mock_env):
+        """Rescore must not resurrect a rejected job's demoted score."""
+        cfg, db, tmp_path = mock_env
+        db.upsert_job(_make_job("rej1", score=0, status="rejected", description="python dev"))
+
+        result = runner.invoke(app, ["rescore"])
+        assert result.exit_code == 0
+
+        jobs = db.get_jobs(limit=None)
+        assert len(jobs) == 1
+        assert jobs[0].status == "rejected"
+        assert jobs[0].score == 0

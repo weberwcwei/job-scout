@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <sub>Scrapes <b>LinkedIn</b> · <b>Indeed</b> · <b>Google Jobs</b> · <b>Glassdoor</b> · <b>ZipRecruiter</b> · <b>Bayt</b></sub>
+  <sub>Scrapes <b>LinkedIn</b> · <b>Indeed</b> · <b>Jora</b></sub>
 </p>
 
 ---
@@ -40,12 +40,12 @@
 
 ---
 
-job-scout scrapes 6 job boards every few hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram, Slack, Discord, or email. Free, no API keys, runs on your Mac.
+job-scout scrapes 3 job boards every few hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram, Slack, Discord, or email. Free, no API keys, runs on your Mac.
 
 ### Why job-scout?
 
 - **You miss new posts** — Job boards bury good matches under promoted listings. job-scout checks every 6 hours so you see them first.
-- **You waste time scrolling** — Instead of checking 6 sites manually, get one alert with only jobs that match your skills.
+- **You waste time scrolling** — Instead of checking 3 sites manually, get one alert with only jobs that match your skills.
 - **You can't compare across sites** — job-scout ranks every job on one 0–100 scale so the best match wins, regardless of where it was posted.
 - **You lose track of applications** — Every job gets an ID. Mark it applied, add notes, check your stats.
 
@@ -168,9 +168,7 @@ STRICT FORMAT RULES (the app validates all of these — violations cause errors)
 11. search.sites MUST be exactly:
     - linkedin
     - indeed
-    - google
-    - glassdoor
-    - ziprecruiter
+    - jora
 12. search.results_per_site: 25
 13. search.hours_old: 72
 14. search.distance_miles: 50

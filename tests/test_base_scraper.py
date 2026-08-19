@@ -75,3 +75,75 @@ class TestDedup:
         assert scraper._is_dup("abc") is False
         assert scraper._is_dup("abc") is True
         assert scraper._is_dup("xyz") is False
+
+
+class TestHostGate:
+    def test_spaces_requests_to_same_host(self):
+        import time
+
+        from job_scout.scrapers import _wait_host_gate
+
+        host = "gate-a.example.com"
+        _wait_host_gate(host, 0.3)
+        t0 = time.monotonic()
+        _wait_host_gate(host, 0.3)
+        assert time.monotonic() - t0 >= 0.25
+
+    def test_different_hosts_not_throttled(self):
+        import time
+
+        from job_scout.scrapers import _wait_host_gate
+
+        _wait_host_gate("gate-b.example.com", 0.5)
+        t0 = time.monotonic()
+        _wait_host_gate("gate-c.example.com", 0.5)
+        assert time.monotonic() - t0 < 0.2
+
+    def test_interval_zero_skips_gate(self):
+        import time
+
+        from job_scout.scrapers import _wait_host_gate
+
+        _wait_host_gate("gate-d.example.com", 0.0)
+        t0 = time.monotonic()
+        _wait_host_gate("gate-d.example.com", 0.0)
+        assert time.monotonic() - t0 < 0.1
+
+
+class TestRateLimitRetry:
+    def test_retry_after_overrides_backoff(self):
+        from unittest.mock import patch
+
+        import httpx
+        import respx
+
+        cfg = ScrapingConfig(
+            max_retries=1,
+            delay_min_seconds=0,
+            delay_max_seconds=0,
+            min_request_interval_seconds=0,
+        )
+        scraper = DummyScraper(cfg)
+        with respx.mock, patch("job_scout.scrapers.time.sleep") as sleep:
+            respx.get("https://example.com/jobs").mock(
+                side_effect=[
+                    httpx.Response(429, headers={"Retry-After": "30"}),
+                    httpx.Response(200, text="ok"),
+                ]
+            )
+            with scraper._make_client() as client:
+                resp = scraper._get_with_retry(client, "https://example.com/jobs")
+        assert resp is not None and resp.status_code == 200
+        sleep_waits = [c.args[0] for c in sleep.call_args_list if c.args]
+        assert 30 in sleep_waits
+
+    def test_gate_applied_across_workers(self):
+        from unittest.mock import patch
+
+        from job_scout.scrapers import _wait_host_gate
+
+        with patch("job_scout.scrapers.time.sleep") as sleep:
+            _wait_host_gate("gate-e.example.com", 1.0)
+            _wait_host_gate("gate-e.example.com", 1.0)
+        waits = [c.args[0] for c in sleep.call_args_list if c.args]
+        assert waits and sum(waits) >= 0.9

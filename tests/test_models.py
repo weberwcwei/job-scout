@@ -425,7 +425,7 @@ class TestJobDedupKey:
 
     def test_dedup_key_is_16_chars(self):
         job = Job(
-            source=Site.GOOGLE,
+            source=Site.INDEED,
             source_id="xyz",
             url="https://example.com",
             title="Test",
