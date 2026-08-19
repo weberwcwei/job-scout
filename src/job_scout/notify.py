@@ -162,26 +162,33 @@ class Notifier:
             return
 
         prefix = (
-            f"**job-scout ({self.profile_name})**"
+            f"job-scout ({self.profile_name})"
             if self.profile_name != "default"
-            else "**job-scout**"
+            else "job-scout"
         )
-        lines = [f"{prefix} — {len(jobs)} new match(es)\n"]
-        for job in jobs:
-            salary = job.compensation.display_concise if job.compensation else ""
-            kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
-            id_tag = f"#{job.id} " if job.id else ""
-            loc_line = f"  {_esc_discord(job.location.display)}"
-            if salary:
-                loc_line += f" | {_esc_discord(salary)}"
-            lines.append(
-                f"**{_esc_discord(job.company)}: {_esc_discord(job.title)}**\n"
-                f"Score: {job.score} | keywords: {kw} | {id_tag}{loc_line}\n"
-                f"{job.url}"
-            )
-        text = "\n".join(lines)
+        header = f"{prefix} — {len(jobs)} new match(es)"
+        embeds = [self._job_to_embed(job) for job in jobs]
 
-        send_discord(text=text, cfg=cfg)
+        send_discord(content=header, embeds=embeds, cfg=cfg)
+
+    @staticmethod
+    def _job_to_embed(job: Job) -> dict:
+        salary = job.compensation.display_concise if job.compensation else ""
+        kw = job.score_breakdown.get("keyword", "?") if job.score_breakdown else "?"
+        id_tag = f"#{job.id} " if job.id else ""
+        loc_line = job.location.display
+        if salary:
+            loc_line += f" | {salary}"
+        desc = (
+            f"**Score: {job.score}** | keywords: {kw} | {id_tag}{_esc_discord(loc_line)}\n"
+            f"{job.url}"
+        )
+        return {
+            "title": f"{_esc_discord(job.company)}: {_esc_discord(job.title)}",
+            "url": job.url,
+            "description": desc,
+            "color": _score_color(job.score),
+        }
 
 
 def send_telegram(text: str, cfg) -> bool:
@@ -295,19 +302,76 @@ def send_slack(text: str, cfg: SlackConfig) -> bool:
         return False
 
 
-def send_discord(text: str, cfg: DiscordConfig) -> bool:
-    """POST to Discord webhook. Returns True on success."""
+def _score_color(score: int) -> int:
+    """Map a 0-100 score to a Discord embed color (int RGB)."""
+    if score >= 70:
+        return 0x2ECC71  # green
+    if score >= 50:
+        return 0xF1C40F  # yellow
+    if score >= 30:
+        return 0xE67E22  # orange
+    return 0xE74C3C  # red
+
+
+def send_discord(
+    cfg: DiscordConfig,
+    content: str | None = None,
+    embeds: list[dict] | None = None,
+    text: str | None = None,
+) -> bool:
+    """POST to Discord webhook. Returns True if all chunked posts succeed.
+
+    Sends ``embeds`` in batches of 10 (Discord per-message limit). The first
+    batch carries ``content``; subsequent batches are embed-only. The legacy
+    ``text`` arg posts a single ``{"content": text}`` payload unchanged.
+    """
     if not cfg.webhook_url:
         log.error("Discord not configured (missing webhook_url)")
         return False
 
-    try:
-        resp = httpx.post(cfg.webhook_url, json={"content": text}, timeout=10)
-        if 200 <= resp.status_code < 300:
-            log.info("Discord message sent")
-            return True
-        log.error(f"Discord webhook returned {resp.status_code}: {resp.text}")
-        return False
-    except Exception as e:
-        log.error(f"Discord notification failed: {e}")
-        return False
+    # Legacy single-message path
+    if text is not None:
+        payload = text
+        if len(payload) > 2000:
+            payload = payload[:1997] + "..."
+        try:
+            resp = httpx.post(
+                cfg.webhook_url, json={"content": payload}, timeout=10
+            )
+            if 200 <= resp.status_code < 300:
+                log.info("Discord message sent")
+                return True
+            log.error(f"Discord webhook returned {resp.status_code}: {resp.text}")
+            return False
+        except Exception as e:
+            log.error(f"Discord notification failed: {e}")
+            return False
+
+    if embeds is None:
+        embeds = []
+
+    # Chunk embeds into batches of 10 (Discord limit)
+    chunks: list[list[dict]] = [
+        embeds[i : i + 10] for i in range(0, len(embeds), 10)
+    ] or [[]]
+
+    all_ok = True
+    for idx, chunk in enumerate(chunks):
+        payload: dict = {}
+        if idx == 0 and content:
+            payload["content"] = content
+        if chunk:
+            payload["embeds"] = chunk
+        if not payload:
+            continue
+        try:
+            resp = httpx.post(cfg.webhook_url, json=payload, timeout=10)
+            if 200 <= resp.status_code < 300:
+                log.info(f"Discord message {idx + 1}/{len(chunks)} sent")
+                continue
+            log.error(f"Discord webhook returned {resp.status_code}: {resp.text}")
+            all_ok = False
+        except Exception as e:
+            log.error(f"Discord notification failed: {e}")
+            all_ok = False
+    return all_ok
