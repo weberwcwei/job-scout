@@ -5,7 +5,16 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from job_scout.models import Compensation, Job, JobType, Location, ScrapeParams, Site
+from job_scout.models import (
+    COUNTRIES,
+    Compensation,
+    Job,
+    JobType,
+    Location,
+    ScrapeParams,
+    Site,
+    US_STATES,
+)
 from job_scout.scrapers import BaseScraper
 from job_scout.scrapers.constants import (
     INDEED_API_URL,
@@ -49,10 +58,12 @@ class IndeedScraper(BaseScraper):
         if params.hours_old:
             filters_str = f'filters: {{ date: {{ field: "dateOnIndeed", start: "{params.hours_old}h" }} }}'
 
+        country = self._country_from_location(params.location) or params.country
+        radius_unit = "KILOMETERS" if country == "AU" else "MILES"
         query = INDEED_SEARCH_QUERY.format(
             what=f'what: "{search_term}"' if search_term else "",
             location=(
-                f'location: {{where: "{params.location}", radius: {params.distance_miles}, radiusUnit: MILES}}'
+                f'location: {{where: "{params.location}", radius: {params.distance_miles}, radiusUnit: {radius_unit}}}'
                 if params.location
                 else ""
             ),
@@ -61,7 +72,7 @@ class IndeedScraper(BaseScraper):
         )
 
         headers = INDEED_HEADERS.copy()
-        headers["indeed-co"] = "US"
+        headers["indeed-co"] = country
 
         resp = self._post_with_retry(
             client,
@@ -71,6 +82,7 @@ class IndeedScraper(BaseScraper):
         )
         if resp is None or not resp.is_success:
             log.warning(f"Indeed API returned {resp.status_code if resp else 'None'}")
+            self._debug_response(resp, "non_success")
             return [], None
 
         try:
@@ -79,20 +91,24 @@ class IndeedScraper(BaseScraper):
             next_cursor = data["data"]["jobSearch"]["pageInfo"]["nextCursor"]
         except (KeyError, TypeError) as e:
             log.error(f"Indeed response parse error: {e}")
+            self._debug_response(resp, "parse_error")
             return [], None
 
         jobs = []
         for result in results:
             job_data = result.get("job") or result
-            job = self._parse_job(job_data, seen_urls)
+            job = self._parse_job(job_data, seen_urls, params, country)
             if job:
                 jobs.append(job)
 
         return jobs, next_cursor
 
-    def _parse_job(self, job: dict, seen_urls: set) -> Job | None:
+    def _parse_job(
+        self, job: dict, seen_urls: set, params: ScrapeParams, country: str
+    ) -> Job | None:
         key = job.get("key", "")
-        job_url = f"https://www.indeed.com/viewjob?jk={key}"
+        indeed_domain = self._indeed_domain(country)
+        job_url = f"https://{indeed_domain}/viewjob?jk={key}"
         if job_url in seen_urls:
             return None
         seen_urls.add(job_url)
@@ -106,7 +122,7 @@ class IndeedScraper(BaseScraper):
         location = Location(
             city=loc.get("city"),
             state=loc.get("admin1Code"),
-            country=loc.get("countryCode", "US"),
+            country=loc.get("countryCode", country),
         )
 
         # Compensation
@@ -148,6 +164,49 @@ class IndeedScraper(BaseScraper):
             job_type=job_types,
             date_posted=date_posted,
         )
+
+    @staticmethod
+    def _country_from_location(location: str | None) -> str | None:
+        """Derive a country code from a location string when it names a country.
+
+        Names only (e.g. "Remote Australia" -> AU, "London UK" -> GB) so plain
+        city/state strings fall back to the configured country. US state names
+        that collide with country names (Georgia) are excluded.
+        """
+        if not location:
+            return None
+        state_names = set(US_STATES)
+        for token in location.lower().split():
+            token = token.strip(".,")
+            if token in COUNTRIES and token not in state_names:
+                return COUNTRIES[token]
+        return None
+
+    @staticmethod
+    def _indeed_domain(country: str) -> str:
+        domain_map = {
+            "AU": "au.indeed.com",
+            "GB": "uk.indeed.com",
+            "CA": "ca.indeed.com",
+            "IE": "ie.indeed.com",
+            "NZ": "nz.indeed.com",
+            "SG": "sg.indeed.com",
+            "IN": "in.indeed.com",
+            "DE": "de.indeed.com",
+            "FR": "fr.indeed.com",
+            "JP": "jp.indeed.com",
+            "BR": "br.indeed.com",
+            "MX": "mx.indeed.com",
+            "ES": "es.indeed.com",
+            "IT": "it.indeed.com",
+            "NL": "nl.indeed.com",
+            "CH": "ch.indeed.com",
+            "AE": "ae.indeed.com",
+            "SA": "sa.indeed.com",
+            "KR": "kr.indeed.com",
+            "SE": "se.indeed.com",
+        }
+        return domain_map.get(country, "www.indeed.com")
 
     @staticmethod
     def _parse_compensation(comp: dict) -> Compensation | None:

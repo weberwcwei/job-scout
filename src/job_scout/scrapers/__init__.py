@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import time
 from abc import ABC, abstractmethod
+from urllib.parse import urlparse
 
 import httpx
 
@@ -13,6 +15,49 @@ from job_scout.config import ScrapingConfig
 from job_scout.models import Job, ScrapeParams, Site
 
 log = logging.getLogger("job_scout.scrapers")
+
+# Process-wide per-host request gate: workers in different tasks each build
+# their own client, so without shared state the aggregate request rate to a
+# host is unbounded (6 workers sleeping 0.5-2s in parallel still burst).
+_host_lock = threading.Lock()
+_last_request_at: dict[str, float] = {}
+
+
+def _wait_host_gate(host: str, min_interval: float) -> None:
+    """Sleep until `min_interval` seconds have passed since the last request
+    to `host` from any worker in this process."""
+    if min_interval <= 0 or not host:
+        return
+    while True:
+        with _host_lock:
+            now = time.monotonic()
+            wait = _last_request_at.get(host, 0.0) + min_interval - now
+            if wait <= 0:
+                _last_request_at[host] = now
+                return
+        time.sleep(wait)
+
+
+class ScraperError(Exception):
+    """Base exception for scraper failures."""
+
+    category: str = "unknown"
+
+
+class NetworkError(ScraperError):
+    category = "network"
+
+
+class AuthError(ScraperError):
+    category = "auth"
+
+
+class ParseError(ScraperError):
+    category = "parse"
+
+
+class RateLimitError(ScraperError):
+    category = "rate_limit"
 
 
 class BaseScraper(ABC):
@@ -22,6 +67,9 @@ class BaseScraper(ABC):
         self.config = config
         self._seen_ids: set[str] = set()
         self._proxy_index: int = 0
+        # Shared across scraper instances for one scrape run: (site, job_id) -> description.
+        # Lets multiple search terms that surface the same job fetch its description once.
+        self.description_cache: dict[tuple[str, str], str] | None = None
 
     @abstractmethod
     def scrape(self, params: ScrapeParams) -> list[Job]: ...
@@ -55,12 +103,17 @@ class BaseScraper(ABC):
     def _get_with_retry(
         self, client: httpx.Client, url: str, **kwargs
     ) -> httpx.Response | None:
+        host = urlparse(url).netloc
         for attempt in range(self.config.max_retries + 1):
+            _wait_host_gate(host, self.config.min_request_interval_seconds)
             self._delay()
             try:
                 resp = client.get(url, **kwargs)
                 if resp.status_code == 429:
                     wait = min(2**attempt * 10, 60)
+                    retry_after = resp.headers.get("Retry-After")
+                    if retry_after and retry_after.isdigit():
+                        wait = max(wait, int(retry_after))
                     log.warning(f"429 from {self.site.value}, backing off {wait}s")
                     time.sleep(wait)
                     continue
@@ -79,12 +132,17 @@ class BaseScraper(ABC):
     def _post_with_retry(
         self, client: httpx.Client, url: str, **kwargs
     ) -> httpx.Response | None:
+        host = urlparse(url).netloc
         for attempt in range(self.config.max_retries + 1):
+            _wait_host_gate(host, self.config.min_request_interval_seconds)
             self._delay()
             try:
                 resp = client.post(url, **kwargs)
                 if resp.status_code == 429:
                     wait = min(2**attempt * 10, 60)
+                    retry_after = resp.headers.get("Retry-After")
+                    if retry_after and retry_after.isdigit():
+                        wait = max(wait, int(retry_after))
                     log.warning(f"429 from {self.site.value}, backing off {wait}s")
                     time.sleep(wait)
                     continue
@@ -111,22 +169,29 @@ class BaseScraper(ABC):
         self._seen_ids.add(source_id)
         return False
 
+    def _debug_response(self, resp: httpx.Response | None, context: str = "") -> None:
+        """Log response snippet when debug mode is on — call on parse failures."""
+        if not self.config.debug or resp is None:
+            return
+        snippet = resp.text[:500] if resp.text else "(empty body)"
+        log.debug(
+            "%s debug — %s: status=%s, body=%.500s",
+            self.site.value,
+            context,
+            resp.status_code,
+            snippet,
+        )
+
 
 def get_scraper(site: str, config: ScrapingConfig) -> BaseScraper:
-    from job_scout.scrapers.bayt import BaytScraper
-    from job_scout.scrapers.glassdoor import GlassdoorScraper
-    from job_scout.scrapers.google import GoogleScraper
     from job_scout.scrapers.indeed import IndeedScraper
+    from job_scout.scrapers.jora import JoraScraper
     from job_scout.scrapers.linkedin import LinkedInScraper
-    from job_scout.scrapers.ziprecruiter import ZipRecruiterScraper
 
     registry = {
         "linkedin": LinkedInScraper,
         "indeed": IndeedScraper,
-        "google": GoogleScraper,
-        "glassdoor": GlassdoorScraper,
-        "ziprecruiter": ZipRecruiterScraper,
-        "bayt": BaytScraper,
+        "jora": JoraScraper,
     }
     cls = registry.get(site)
     if not cls:

@@ -52,6 +52,7 @@ class LinkedInScraper(BaseScraper):
                 if resp is None or resp.status_code != 200:
                     if resp and resp.status_code == 429:
                         log.warning("LinkedIn rate limited, stopping pagination")
+                    self._debug_response(resp, "non_success")
                     break
 
                 soup = BeautifulSoup(resp.text, "html.parser")
@@ -139,6 +140,11 @@ class LinkedInScraper(BaseScraper):
         )
 
     def _fetch_description(self, client, job_id: str) -> str:
+        if self.description_cache is not None:
+            key = (Site.LINKEDIN.value, job_id)
+            cached = self.description_cache.get(key)
+            if cached is not None:
+                return cached
         resp = self._get_with_retry(
             client, f"{LINKEDIN_JOB_URL}/{job_id}", headers=LINKEDIN_HEADERS
         )
@@ -151,7 +157,10 @@ class LinkedInScraper(BaseScraper):
         div = soup.find(
             "div", class_=lambda x: x and "show-more-less-html__markup" in x
         )
-        return html_to_text(str(div)) if div else ""
+        description = html_to_text(str(div)) if div else ""
+        if self.description_cache is not None:
+            self.description_cache[key] = description
+        return description
 
     @staticmethod
     def _parse_location(metadata) -> Location:

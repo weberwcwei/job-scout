@@ -29,10 +29,7 @@ def compute_content_key(
 class Site(str, Enum):
     LINKEDIN = "linkedin"
     INDEED = "indeed"
-    GOOGLE = "google"
-    GLASSDOOR = "glassdoor"
-    ZIPRECRUITER = "ziprecruiter"
-    BAYT = "bayt"
+    JORA = "jora"
 
 
 class JobType(str, Enum):
@@ -334,3 +331,4 @@ class ScrapeParams(BaseModel):
     results_wanted: int = 25
     hours_old: int = 72
     distance_miles: int = 50
+    country: str = "US"

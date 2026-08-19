@@ -55,22 +55,26 @@ class ProfileConfig(BaseModel):
 class SearchConfig(BaseModel):
     terms: list[str]
     locations: list[str]
-    sites: list[str] = ["linkedin", "indeed", "google", "glassdoor", "ziprecruiter"]
+    sites: list[str] = ["linkedin", "indeed", "jora"]
     results_per_site: int = 25
     hours_old: int = 72
     distance_miles: int = 50
+    country: str = "US"
+    expire_days: int = 30
 
 
 class ScrapingConfig(BaseModel):
-    delay_min_seconds: float = 3.0
-    delay_max_seconds: float = 8.0
+    delay_min_seconds: float = 0.5
+    delay_max_seconds: float = 2.0
     request_timeout: int = 15
     max_retries: int = 2
     max_pages: int = 3
     fetch_descriptions: bool = True
     proxies: list[str] = []
     use_tls_fingerprinting: bool = False
-    max_workers: int = 3
+    max_workers: int = 6
+    min_request_interval_seconds: float = 1.0
+    debug: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -272,6 +276,23 @@ def validate_quality(cfg: AppConfig) -> list[ConfigDiagnostic]:
                         message=f"Invalid regex in {field_name}: {pattern} — {e}",
                     )
                 )
+
+    # --- Errors: unknown sites ---
+    from job_scout.models import Site  # deferred to avoid circular import
+
+    valid_sites = {s.value for s in Site}
+    for site in cfg.search.sites:
+        if site not in valid_sites:
+            diags.append(
+                ConfigDiagnostic(
+                    level="error",
+                    field="search.sites",
+                    message=(
+                        f"Unknown site {site!r} — supported sites: "
+                        f"{', '.join(sorted(valid_sites))}"
+                    ),
+                )
+            )
 
     # --- Warnings: placeholder values ---
     if not cfg.profile.name or cfg.profile.name == "Your Name":

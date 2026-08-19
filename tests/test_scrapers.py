@@ -18,6 +18,7 @@ def scraping_config():
         delay_max_seconds=0,
         max_retries=0,
         max_pages=2,
+        min_request_interval_seconds=0,
     )
 
 
@@ -79,6 +80,42 @@ class TestLinkedInScraper:
             assert jobs[0].title == "Software Engineer"
             assert jobs[0].company == "Acme Corp"
             assert jobs[0].source == Site.LINKEDIN
+
+    def test_description_cache_shared_between_scrapers(self, scraping_config, params):
+        from job_scout.scrapers.linkedin import LinkedInScraper
+
+        html = """
+        <html>
+        <div class="base-search-card">
+            <a class="base-card__full-link" href="https://linkedin.com/jobs/view/test-job-12345">Link</a>
+            <span class="sr-only">Software Engineer</span>
+            <h4 class="base-search-card__subtitle"><a>Acme Corp</a></h4>
+            <div class="base-search-card__metadata">
+                <span class="job-search-card__location">Sydney NSW</span>
+            </div>
+        </div>
+        </html>
+        """
+        cache = {}
+        s1 = LinkedInScraper(scraping_config)
+        s2 = LinkedInScraper(scraping_config)
+        s1.description_cache = cache
+        s2.description_cache = cache
+        with respx.mock:
+            respx.get(
+                "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+            ).mock(return_value=httpx.Response(200, text=html))
+            route = respx.get(
+                url__startswith="https://www.linkedin.com/jobs/view/"
+            ).mock(
+                return_value=httpx.Response(
+                    200,
+                    text="<div class='show-more-less-html__markup'>Description</div>",
+                )
+            )
+            s1.scrape(params)
+            s2.scrape(params)
+        assert len(route.calls) == 1
 
 
 class TestIndeedScraper:
@@ -148,170 +185,103 @@ class TestIndeedScraper:
             assert jobs[0].company == "TechCo"
             assert jobs[0].source == Site.INDEED
 
+    def test_country_derived_from_location(self):
+        from job_scout.scrapers.indeed import IndeedScraper
 
-class TestGlassdoorScraper:
+        scraper = IndeedScraper(ScrapingConfig())
+        assert scraper._country_from_location("Remote Australia") == "AU"
+        assert scraper._country_from_location("London UK") == "GB"
+        assert scraper._country_from_location("Sydney NSW") is None
+        assert scraper._country_from_location("Georgia") is None  # US state wins
+        assert scraper._country_from_location(None) is None
+
+
+class TestJoraScraper:
     def test_parse_empty_response(self, scraping_config, params):
-        from job_scout.scrapers.glassdoor import GlassdoorScraper
+        from job_scout.scrapers.jora import JoraScraper
 
-        scraper = GlassdoorScraper(scraping_config)
+        scraper = JoraScraper(scraping_config)
         with respx.mock:
-            respx.get("https://www.glassdoor.com").mock(
+            respx.get(url__startswith="https://au.jora.com/j?").mock(
                 return_value=httpx.Response(200, text="<html></html>")
             )
-            respx.post("https://www.glassdoor.com/graph").mock(
-                return_value=httpx.Response(
-                    200,
-                    json=[
-                        {
-                            "data": {
-                                "jobListings": {
-                                    "jobListings": [],
-                                    "totalJobsCount": 0,
-                                    "paginationCursors": [],
-                                }
-                            }
-                        }
-                    ],
-                )
-            )
-            jobs = scraper.scrape(params)
-            assert jobs == []
-
-    def test_parse_listing(self, scraping_config, params):
-        from job_scout.scrapers.glassdoor import GlassdoorScraper
-
-        scraper = GlassdoorScraper(scraping_config)
-        with respx.mock:
-            respx.get("https://www.glassdoor.com").mock(
+            respx.get(url__startswith="https://au.jora.com/job/").mock(
                 return_value=httpx.Response(200, text="<html></html>")
             )
-            respx.post("https://www.glassdoor.com/graph").mock(
-                return_value=httpx.Response(
-                    200,
-                    json=[
-                        {
-                            "data": {
-                                "jobListings": {
-                                    "jobListings": [
-                                        {
-                                            "jobview": {
-                                                "header": {
-                                                    "jobLink": "/job/123",
-                                                    "jobTitleText": "Data Scientist",
-                                                    "employerNameFromSearch": "DataCo",
-                                                    "ageInDays": 2,
-                                                    "payPercentile10": 80000,
-                                                    "payPercentile90": 120000,
-                                                    "payCurrency": "USD",
-                                                    "payPeriod": "ANNUAL",
-                                                },
-                                                "job": {
-                                                    "listingId": "gd-999",
-                                                    "description": "ML role",
-                                                },
-                                                "overview": {"name": "DataCo"},
-                                                "locationName": "Boston, MA",
-                                                "remoteWorkTypes": [],
-                                            }
-                                        }
-                                    ],
-                                    "totalJobsCount": 1,
-                                    "paginationCursors": [],
-                                }
-                            }
-                        }
-                    ],
-                )
-            )
-            jobs = scraper.scrape(params)
-            assert len(jobs) == 1
-            assert jobs[0].title == "Data Scientist"
-            assert jobs[0].source == Site.GLASSDOOR
-
-
-class TestZipRecruiterScraper:
-    def test_parse_empty_response(self, scraping_config, params):
-        from job_scout.scrapers.ziprecruiter import ZipRecruiterScraper
-
-        scraper = ZipRecruiterScraper(scraping_config)
-        with respx.mock:
-            respx.get("https://api.ziprecruiter.com/jobs-app/jobs").mock(
-                return_value=httpx.Response(
-                    200, json={"jobs": [], "continue_from": None}
-                )
-            )
-            jobs = scraper.scrape(params)
-            assert jobs == []
-
-    def test_parse_jobs(self, scraping_config, params):
-        from job_scout.scrapers.ziprecruiter import ZipRecruiterScraper
-
-        scraper = ZipRecruiterScraper(scraping_config)
-        with respx.mock:
-            respx.get("https://api.ziprecruiter.com/jobs-app/jobs").mock(
-                return_value=httpx.Response(
-                    200,
-                    json={
-                        "jobs": [
-                            {
-                                "id": "zr-001",
-                                "name": "Frontend Dev",
-                                "url": "https://ziprecruiter.com/j/zr-001",
-                                "hiring_company": {"name": "WebCo"},
-                                "job_city": "Austin",
-                                "job_state": "TX",
-                                "job_country": "US",
-                                "snippet": "<b>React</b> developer needed",
-                                "posted_time_friendly": "2 days ago",
-                                "salary_min_annual": 90000,
-                                "salary_max_annual": 130000,
-                            }
-                        ],
-                        "continue_from": None,
-                    },
-                )
-            )
-            jobs = scraper.scrape(params)
-            assert len(jobs) == 1
-            assert jobs[0].title == "Frontend Dev"
-            assert jobs[0].source == Site.ZIPRECRUITER
-            assert jobs[0].compensation is not None
-
-
-class TestBaytScraper:
-    def test_parse_empty_response(self, scraping_config, params):
-        from job_scout.scrapers.bayt import BaytScraper
-
-        scraper = BaytScraper(scraping_config)
-        with respx.mock:
-            respx.get(
-                url__startswith="https://www.bayt.com/en/international/jobs/"
-            ).mock(return_value=httpx.Response(200, text="<html><body></body></html>"))
             jobs = scraper.scrape(params)
             assert jobs == []
 
     def test_parse_cards(self, scraping_config, params):
-        from job_scout.scrapers.bayt import BaytScraper
+        from job_scout.scrapers.jora import JoraScraper
 
         html = """
         <html><body>
-        <li data-js-job="1" data-job-id="bt-100">
-            <h2><a href="/en/job/bt-100">DevOps Engineer</a></h2>
-            <b class="company-name">CloudFirm</b>
-            <span class="location-text">Dubai, UAE</span>
-            <span class="date-posted">3 days ago</span>
-        </li>
+        <article class="job-card" data-jd-payload='{"jobId":"job123","tk":"tok123"}'>
+          <div class="job-title"><a class="job-link" href="/job/Software-Engineer-job123?x=1">Software Engineer</a></div>
+          <div class="job-company">Acme Corp</div>
+          <div class="job-location">Sydney NSW</div>
+          <div class="job-listed-date">Posted 2d ago</div>
+          <ul class="job-abstract"><li>Build cool stuff</li><li>Python required</li></ul>
+          <div class="badges"><span class="badge"><span class="content">Permanent</span></span><span class="badge"><span class="content">$120,000 - $140,000 a year</span></span></div>
+        </article>
+        <article class="job-card" data-jd-payload='{"jobId":"job456","tk":"tok123"}'>
+          <div class="job-title"><a class="job-link" href="/job/Senior-Engineer-job456">Senior Engineer</a></div>
+          <div class="job-company">Beta Inc</div>
+          <div class="job-location">Remote Australia</div>
+          <div class="job-listed-date">Posted today</div>
+          <ul class="job-abstract"><li>Lead the team</li></ul>
+          <div class="badges"><span class="badge"><span class="content">Full time</span></span><span class="badge"><span class="content">$50 - $60 per hour</span></span></div>
+        </article>
         </body></html>
         """
-        scraper = BaytScraper(scraping_config)
+        scraper = JoraScraper(scraping_config)
         with respx.mock:
-            respx.get(
-                url__startswith="https://www.bayt.com/en/international/jobs/"
-            ).mock(return_value=httpx.Response(200, text=html))
+            respx.get(url__startswith="https://au.jora.com/j?").mock(
+                return_value=httpx.Response(200, text=html)
+            )
+            detail = respx.get(url__startswith="https://au.jora.com/job/").mock(
+                return_value=httpx.Response(
+                    200,
+                    text="<div id='job-description-container'>"
+                    "Full python backend description text here</div>",
+                )
+            )
             jobs = scraper.scrape(params)
-            assert len(jobs) == 1
-            assert jobs[0].title == "DevOps Engineer"
-            assert jobs[0].source == Site.BAYT
+            assert len(jobs) == 2
+            assert jobs[0].title == "Software Engineer"
+            assert jobs[0].company == "Acme Corp"
+            assert jobs[0].source == Site.JORA
+            assert jobs[0].location.country == "AU"
+            assert jobs[0].location.city == "Sydney"
+            # TLS is off in this fixture: detail fetch is gated, abstract is used
+            assert "python" not in jobs[0].description
+            assert len(detail.calls) == 0
+            assert jobs[0].compensation is not None
+            assert jobs[0].compensation.currency == "AUD"
+            assert jobs[0].compensation.interval.value == "yearly"
+            assert jobs[0].date_posted is not None
+            assert jobs[1].location.is_remote is True
+            assert jobs[1].compensation.interval.value == "hourly"
+
+    def test_fetch_description_parses_detail_page(self):
+        from job_scout.scrapers.jora import JoraScraper
+
+        class StubResp:
+            status_code = 200
+            text = (
+                "<div id='job-description-container'>"
+                "<p>Full python backend description text here</p></div>"
+            )
+
+        class StubClient:
+            def get(self, url, **kwargs):
+                return StubResp()
+
+        scraper = JoraScraper(ScrapingConfig())
+        scraper.description_cache = {}
+        desc = scraper._fetch_description(StubClient(), "/job/X-job123", "job123")
+        assert "python" in desc
+        assert scraper.description_cache[("jora", "job123")] == desc
 
 
 class TestScraperRegistry:
@@ -322,10 +292,7 @@ class TestScraperRegistry:
         for site in [
             "linkedin",
             "indeed",
-            "google",
-            "glassdoor",
-            "ziprecruiter",
-            "bayt",
+            "jora",
         ]:
             scraper = get_scraper(site, cfg)
             assert scraper is not None
