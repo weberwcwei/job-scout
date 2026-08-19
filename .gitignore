@@ -230,3 +230,8 @@ docs/
 # AI assistant instructions
 CLAUDE.md
 .claude/
+
+# Local agent tooling
+.agents/
+skills-lock.json
+continue
