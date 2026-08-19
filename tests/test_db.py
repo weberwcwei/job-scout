@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 
 from job_scout.db import JobDB
@@ -132,7 +134,7 @@ class TestGetStatsZeroResultRuns:
 
         # An error run (should NOT count as zero-result)
         run3 = ScrapeRun(
-            site=Site.GOOGLE,
+            site=Site.INDEED,
             search_term="python",
             location="Remote",
             started_at=datetime.now(),
@@ -515,3 +517,60 @@ class TestSearchTermStats:
         job = db.get_job(row_id)
         # First discovery's search_term is kept (upsert UPDATE doesn't touch search_term)
         assert job.search_term == "data science"
+
+
+class TestExpireOldJobs:
+    def _insert_aged(self, db, sid, status, age_days):
+        _, job_id = db.upsert_job(_make_job(sid, status=status))
+        db.conn.execute(
+            "UPDATE jobs SET date_scraped = ? WHERE id = ?",
+            ((datetime.now() - timedelta(days=age_days)).isoformat(), job_id),
+        )
+        db.conn.commit()
+        return job_id
+
+    def test_expires_old_new_and_filtered(self, db):
+        self._insert_aged(db, "old-new", "new", 40)
+        self._insert_aged(db, "old-filtered", "filtered", 40)
+        self._insert_aged(db, "recent-new", "new", 5)
+
+        assert db.expire_old_jobs(30) == 2
+        statuses = {j.status for j in db.get_jobs()}
+        assert statuses == {"new", "expired"}
+
+    def test_preserves_user_tracked_rows(self, db):
+        for status in ("applied", "interview", "offer", "rejected"):
+            self._insert_aged(db, f"x-{status}", status, 90)
+
+        assert db.expire_old_jobs(30) == 0
+        statuses = {j.status for j in db.get_jobs()}
+        assert statuses == {"applied", "interview", "offer", "rejected"}
+
+    def test_empty_db(self, db):
+        assert db.expire_old_jobs(30) == 0
+
+
+class TestRejectDemotesScore:
+    def test_reject_zeroes_score_and_stashes_original(self, db):
+        _, row_id = db.upsert_job(_make_job("r1", score=85))
+        db.update_status(row_id, "rejected", "not a fit")
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.score == 0
+        assert job.score_breakdown.get("pre_reject_score") == 85
+
+    def test_other_statuses_keep_score(self, db):
+        _, row_id = db.upsert_job(_make_job("r2", score=70))
+        db.update_status(row_id, "applied")
+        job = db.get_job(row_id)
+        assert job.score == 70
+        assert "pre_reject_score" not in job.score_breakdown
+
+    def test_reject_on_malformed_breakdown_does_not_crash(self, db):
+        _, row_id = db.upsert_job(_make_job("r3", score=60))
+        db.conn.execute("UPDATE jobs SET score_breakdown = '' WHERE id = ?", (row_id,))
+        db.conn.commit()
+        db.update_status(row_id, "rejected")
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.score == 0

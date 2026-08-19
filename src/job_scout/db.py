@@ -241,12 +241,38 @@ class JobDB:
         if status in ("applied", "interview", "offer"):
             updates.append("applied_date = COALESCE(applied_date, ?)")
             params.append(date.today().isoformat())
+        if status == "rejected":
+            # Demote so rejected jobs sink out of score-ordered views and can't
+            # be re-alerted. Stash the original score for reference.
+            updates.append("score = 0")
+            updates.append(
+                "score_breakdown = json_set("
+                "CASE WHEN json_valid(score_breakdown) THEN score_breakdown ELSE '{}' END, "
+                "'$.pre_reject_score', score)"
+            )
         params.append(job_id)
         self.conn.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", params)
         self.conn.commit()
 
     def mark_applied(self, job_id: int, notes: str = "") -> None:
         self.update_status(job_id, "applied", notes)
+
+    def expire_old_jobs(self, days: int) -> int:
+        """Mark `new`/`filtered` jobs unseen for `days` as expired.
+
+        User-tracked statuses (applied/interview/offer/rejected) are never
+        touched — they are history, not inventory. Age uses first-seen
+        (`date_scraped`), which is always set, rather than `date_posted`
+        (often missing for scraped rows).
+        """
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        cur = self.conn.execute(
+            """UPDATE jobs SET status = 'expired', updated_at = datetime('now')
+            WHERE status IN ('new', 'filtered') AND date_scraped < ?""",
+            (cutoff,),
+        )
+        self.conn.commit()
+        return cur.rowcount
 
     def get_recent_jobs(self, days: int = 14, limit: int = 50) -> list[Job]:
         """Return recent jobs + any with active status, for bot LLM context."""
