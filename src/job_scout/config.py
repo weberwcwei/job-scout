@@ -278,9 +278,9 @@ def validate_quality(cfg: AppConfig) -> list[ConfigDiagnostic]:
                 )
 
     # --- Errors: unknown sites ---
-    from job_scout.models import Site  # deferred to avoid circular import
+    from job_scout.scrapers import get_supported_sites
 
-    valid_sites = {s.value for s in Site}
+    valid_sites = get_supported_sites()
     for site in cfg.search.sites:
         if site not in valid_sites:
             diags.append(

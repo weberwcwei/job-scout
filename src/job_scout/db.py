@@ -115,15 +115,21 @@ class JobDB:
         if existing:
             old_status = existing["status"]
             new_status = job.status if old_status in ("new", "filtered") else old_status
-            self.conn.execute(
-                "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
-                (
-                    job.score,
-                    json.dumps(job.score_breakdown),
-                    new_status,
-                    existing["id"],
-                ),
-            )
+            if old_status == "rejected":
+                self.conn.execute(
+                    "UPDATE jobs SET updated_at = datetime('now') WHERE id = ?",
+                    (existing["id"],),
+                )
+            else:
+                self.conn.execute(
+                    "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
+                    (
+                        job.score,
+                        json.dumps(job.score_breakdown),
+                        new_status,
+                        existing["id"],
+                    ),
+                )
             self.conn.commit()
             return False, existing["id"]
 
@@ -135,7 +141,10 @@ class JobDB:
             )
             content_match = cur.fetchone()
             if content_match:
-                if job.score > content_match["score"]:
+                if (
+                    content_match["status"] != "rejected"
+                    and job.score > content_match["score"]
+                ):
                     self.conn.execute(
                         "UPDATE jobs SET score = ?, score_breakdown = ?, updated_at = datetime('now') WHERE id = ?",
                         (

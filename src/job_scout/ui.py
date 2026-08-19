@@ -22,9 +22,6 @@ log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).parent / "web"
 
-#: Job rows carry a DB handle per request; the handler reads it off the server.
-DB_ATTR = "_jobscout_db"
-
 #: Statuses the UI offers as filter chips and status updates.
 STATUSES = ("new", "applied", "interview", "offer", "rejected", "filtered")
 
@@ -71,6 +68,7 @@ class UIHandler(BaseHTTPRequestHandler):
     """Serves the single-page app and its JSON API against a JobDB."""
 
     server_version = "JobScoutUI/1.0"
+    _scoped: JobDB | None = None
 
     def _send_json(self, payload: dict[str, object], status: int = HTTPStatus.OK) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -140,7 +138,9 @@ class UIHandler(BaseHTTPRequestHandler):
 
     @property
     def _db(self) -> JobDB:
-        return getattr(self.server, DB_ATTR)
+        if self._scoped is None:
+            raise RuntimeError("request database is unavailable")
+        return self._scoped
 
     def _handle_meta(self) -> None:
         db = self._db
@@ -268,7 +268,6 @@ def _create_server(db_path: Path, host: str, port: int) -> tuple[ThreadingHTTPSe
         def setup(self) -> None:  # noqa: D401 - BaseHTTPRequestHandler hook
             super().setup()
             self._scoped = JobDB(db_path)
-            setattr(self.server, DB_ATTR, self._scoped)
 
         def finish(self) -> None:
             if self._scoped is not None:

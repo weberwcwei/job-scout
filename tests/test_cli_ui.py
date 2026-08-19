@@ -191,14 +191,19 @@ class TestPatch:
 class TestStatic:
     def test_index_served(self, server):
         with urllib.request.urlopen(f"{server}/") as resp:  # noqa: S310
-            body = resp.read().decode()
-        assert "job-scout" in body
+            assert resp.status == 200
+            assert resp.headers.get_content_type() == "text/html"
+            assert resp.read()
 
-    def test_assets_served(self, server):
-        with urllib.request.urlopen(f"{server}/app.css") as resp:  # noqa: S310
-            assert "joblist" in resp.read().decode()
-        with urllib.request.urlopen(f"{server}/app.js") as resp:  # noqa: S310
-            assert "fetchJSON" in resp.read().decode()
+    @pytest.mark.parametrize(
+        ("path", "content_type"),
+        [("app.css", "text/css"), ("app.js", "text/javascript")],
+    )
+    def test_assets_served(self, server, path, content_type):
+        with urllib.request.urlopen(f"{server}/{path}") as resp:  # noqa: S310
+            assert resp.status == 200
+            assert resp.headers.get_content_type() == content_type
+            assert resp.read()
 
     def test_unknown_path_404(self, server):
         with pytest.raises(urllib.error.HTTPError) as exc_info:

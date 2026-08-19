@@ -150,9 +150,12 @@ class JoraScraper(BaseScraper):
     def _fetch_description(self, client, href: str, job_id: str) -> str:
         key = (Site.JORA.value, job_id)
         if self.description_cache is not None:
-            cached = self.description_cache.get(key)
-            if cached is not None:
-                return cached
+            return self.description_cache.get_or_fetch(
+                key, lambda: self._fetch_description_uncached(client, href)
+            )
+        return self._fetch_description_uncached(client, href) or ""
+
+    def _fetch_description_uncached(self, client, href: str) -> str | None:
         resp = self._get_with_retry(
             client, f"{JORA_BASE_URL}{href}", headers=JORA_HEADERS
         )
@@ -171,9 +174,7 @@ class JoraScraper(BaseScraper):
                 if node:
                     description = html_to_text(str(node))
                     break
-        if self.description_cache is not None and description:
-            self.description_cache[key] = description
-        return description
+        return description or None
 
     @staticmethod
     def _parse_location(text: str) -> Location:

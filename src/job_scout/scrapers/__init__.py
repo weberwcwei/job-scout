@@ -23,6 +23,40 @@ _host_lock = threading.Lock()
 _last_request_at: dict[str, float] = {}
 
 
+class DescriptionCache:
+    def __init__(self) -> None:
+        self._values: dict[tuple[str, str], str] = {}
+        self._inflight: set[tuple[str, str]] = set()
+        self._condition = threading.Condition()
+
+    def get_or_fetch(self, key: tuple[str, str], fetch) -> str:
+        with self._condition:
+            while key in self._inflight:
+                self._condition.wait()
+            if key in self._values:
+                return self._values[key]
+            self._inflight.add(key)
+
+        try:
+            value = fetch()
+        except BaseException:
+            with self._condition:
+                self._inflight.remove(key)
+                self._condition.notify_all()
+            raise
+
+        with self._condition:
+            self._inflight.remove(key)
+            if value is not None:
+                self._values[key] = value
+            self._condition.notify_all()
+        return value or ""
+
+    def __getitem__(self, key: tuple[str, str]) -> str:
+        with self._condition:
+            return self._values[key]
+
+
 def _wait_host_gate(host: str, min_interval: float) -> None:
     """Sleep until `min_interval` seconds have passed since the last request
     to `host` from any worker in this process."""
@@ -69,7 +103,7 @@ class BaseScraper(ABC):
         self._proxy_index: int = 0
         # Shared across scraper instances for one scrape run: (site, job_id) -> description.
         # Lets multiple search terms that surface the same job fetch its description once.
-        self.description_cache: dict[tuple[str, str], str] | None = None
+        self.description_cache: DescriptionCache | None = None
 
     @abstractmethod
     def scrape(self, params: ScrapeParams) -> list[Job]: ...
@@ -105,8 +139,8 @@ class BaseScraper(ABC):
     ) -> httpx.Response | None:
         host = urlparse(url).netloc
         for attempt in range(self.config.max_retries + 1):
-            _wait_host_gate(host, self.config.min_request_interval_seconds)
             self._delay()
+            _wait_host_gate(host, self.config.min_request_interval_seconds)
             try:
                 resp = client.get(url, **kwargs)
                 if resp.status_code == 429:
@@ -134,8 +168,8 @@ class BaseScraper(ABC):
     ) -> httpx.Response | None:
         host = urlparse(url).netloc
         for attempt in range(self.config.max_retries + 1):
-            _wait_host_gate(host, self.config.min_request_interval_seconds)
             self._delay()
+            _wait_host_gate(host, self.config.min_request_interval_seconds)
             try:
                 resp = client.post(url, **kwargs)
                 if resp.status_code == 429:
@@ -183,16 +217,24 @@ class BaseScraper(ABC):
         )
 
 
-def get_scraper(site: str, config: ScrapingConfig) -> BaseScraper:
+def _scraper_registry():
     from job_scout.scrapers.indeed import IndeedScraper
     from job_scout.scrapers.jora import JoraScraper
     from job_scout.scrapers.linkedin import LinkedInScraper
 
-    registry = {
+    return {
         "linkedin": LinkedInScraper,
         "indeed": IndeedScraper,
         "jora": JoraScraper,
     }
+
+
+def get_supported_sites() -> frozenset[str]:
+    return frozenset(_scraper_registry())
+
+
+def get_scraper(site: str, config: ScrapingConfig) -> BaseScraper:
+    registry = _scraper_registry()
     cls = registry.get(site)
     if not cls:
         raise ValueError(f"Unknown site: {site}")

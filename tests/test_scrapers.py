@@ -96,7 +96,9 @@ class TestLinkedInScraper:
         </div>
         </html>
         """
-        cache = {}
+        from job_scout.scrapers import DescriptionCache
+
+        cache = DescriptionCache()
         s1 = LinkedInScraper(scraping_config)
         s2 = LinkedInScraper(scraping_config)
         s1.description_cache = cache
@@ -278,7 +280,9 @@ class TestJoraScraper:
                 return StubResp()
 
         scraper = JoraScraper(ScrapingConfig())
-        scraper.description_cache = {}
+        from job_scout.scrapers import DescriptionCache
+
+        scraper.description_cache = DescriptionCache()
         desc = scraper._fetch_description(StubClient(), "/job/X-job123", "job123")
         assert "python" in desc
         assert scraper.description_cache[("jora", "job123")] == desc

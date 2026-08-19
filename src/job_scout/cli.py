@@ -31,7 +31,7 @@ from job_scout.export import write_csv, write_json
 from job_scout.models import Location, ScrapeParams, ScrapeRun, Site
 from job_scout.notify import Notifier
 from job_scout.scorer import JobScorer
-from job_scout.scrapers import get_scraper
+from job_scout.scrapers import DescriptionCache, get_scraper, get_supported_sites
 
 app = typer.Typer(name="job-scout", help="Lightweight job scraping and alerting.")
 console = Console()
@@ -98,7 +98,7 @@ def scrape(
     terms = [term] if term else cfg.search.terms
     locations = cfg.search.locations
 
-    valid_sites = {s.value for s in Site}
+    valid_sites = get_supported_sites()
     unknown = [s for s in sites if s not in valid_sites]
     if unknown:
         console.print(
@@ -121,7 +121,7 @@ def scrape(
     ]
     # Run-scoped description cache shared by all workers: the same job often
     # matches several search terms, so its description should be fetched once.
-    description_cache: dict[tuple[str, str], str] = {}
+    description_cache = DescriptionCache()
 
     def _run_one(task):
         s_name, s_term, s_loc = task

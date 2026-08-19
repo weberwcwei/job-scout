@@ -91,6 +91,16 @@ class TestGetJobsSourceFilter:
         jobs = db.get_jobs(source="indeed")
         assert jobs == []
 
+    @pytest.mark.parametrize(
+        "source", ["google", "glassdoor", "ziprecruiter", "bayt"]
+    )
+    def test_reads_rows_from_retired_scrapers(self, db, source):
+        _, row_id = db.upsert_job(_make_job(f"legacy-{source}"))
+        db.conn.execute("UPDATE jobs SET source = ? WHERE id = ?", (source, row_id))
+        db.conn.commit()
+
+        assert db.get_job(row_id).source.value == source
+
 
 class TestGetJobsLimitNone:
     def test_returns_all_when_limit_none(self, db):
@@ -574,3 +584,29 @@ class TestRejectDemotesScore:
         job = db.get_job(row_id)
         assert job.status == "rejected"
         assert job.score == 0
+
+    def test_rescrape_preserves_rejected_score_metadata(self, db):
+        _, row_id = db.upsert_job(_make_job("r4", score=85))
+        db.update_status(row_id, "rejected")
+
+        db.upsert_job(_make_job("r4", score=95))
+
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.score == 0
+        assert job.score_breakdown["pre_reject_score"] == 85
+
+    def test_content_match_preserves_rejected_score_metadata(self, db):
+        original = _make_job("r5", score=85)
+        original.description = "shared description " * 20
+        _, row_id = db.upsert_job(original)
+        db.update_status(row_id, "rejected")
+        duplicate = _make_job("r6", score=95)
+        duplicate.description = original.description
+
+        db.upsert_job(duplicate)
+
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.score == 0
+        assert job.score_breakdown["pre_reject_score"] == 85

@@ -29,6 +29,10 @@ def compute_content_key(
 class Site(str, Enum):
     LINKEDIN = "linkedin"
     INDEED = "indeed"
+    GOOGLE = "google"
+    GLASSDOOR = "glassdoor"
+    ZIPRECRUITER = "ziprecruiter"
+    BAYT = "bayt"
     JORA = "jora"
 
 

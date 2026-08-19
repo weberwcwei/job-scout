@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Lock
 from unittest.mock import patch
 
 
@@ -108,6 +110,63 @@ class TestHostGate:
         t0 = time.monotonic()
         _wait_host_gate("gate-d.example.com", 0.0)
         assert time.monotonic() - t0 < 0.1
+
+    def test_random_delay_happens_before_host_reservation(self):
+        cfg = ScrapingConfig(
+            max_retries=0,
+            delay_min_seconds=0,
+            delay_max_seconds=0,
+            min_request_interval_seconds=1,
+        )
+        scraper = DummyScraper(cfg)
+        calls = []
+
+        class Client:
+            def get(self, url):
+                calls.append("get")
+                return type("Response", (), {"status_code": 200})()
+
+        client = Client()
+
+        with (
+            patch.object(scraper, "_delay", side_effect=lambda: calls.append("delay")),
+            patch(
+                "job_scout.scrapers._wait_host_gate",
+                side_effect=lambda *args: calls.append("gate"),
+            ),
+        ):
+            scraper._get_with_retry(client, "https://example.com/jobs")
+
+        assert calls == ["delay", "gate", "get"]
+
+
+class TestDescriptionCache:
+    def test_concurrent_fetches_for_one_key_are_single_flight(self):
+        from job_scout.scrapers import DescriptionCache
+
+        cache = DescriptionCache()
+        started = Event()
+        release = Event()
+        count_lock = Lock()
+        fetch_count = 0
+
+        def fetch():
+            nonlocal fetch_count
+            with count_lock:
+                fetch_count += 1
+            started.set()
+            release.wait(timeout=1)
+            return "description"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(cache.get_or_fetch, ("linkedin", "123"), fetch)
+            assert started.wait(timeout=1)
+            second = pool.submit(cache.get_or_fetch, ("linkedin", "123"), fetch)
+            release.set()
+            assert first.result() == "description"
+            assert second.result() == "description"
+
+        assert fetch_count == 1
 
 
 class TestRateLimitRetry:
