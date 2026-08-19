@@ -2,7 +2,8 @@
 
 "use strict";
 
-const STATUSES = ["new", "applied", "interview", "offer", "rejected", "filtered"];
+const STATUSES = ["new", "applied", "interview", "offer", "rejected", "filtered", "expired"];
+const EDITABLE_STATUSES = ["new", "applied", "interview", "offer", "rejected", "filtered"];
 
 const STATUS_COLORS = {
   new: "var(--status-new)",
@@ -11,6 +12,7 @@ const STATUS_COLORS = {
   offer: "var(--status-offer)",
   rejected: "var(--status-rejected)",
   filtered: "var(--status-filtered)",
+  expired: "var(--status-expired)",
 };
 
 const state = {
@@ -161,13 +163,15 @@ function buildRow(job) {
   }
 
   const select = root.querySelector(".status-select");
-  for (const status of STATUSES) {
+  const selectableStatuses = job.status === "expired" ? ["expired"] : EDITABLE_STATUSES;
+  for (const status of selectableStatuses) {
     const opt = document.createElement("option");
     opt.value = status;
     opt.textContent = status;
     opt.selected = status === job.status;
     select.appendChild(opt);
   }
+  select.disabled = job.status === "expired";
   select.addEventListener("change", async () => {
     select.disabled = true;
     try {

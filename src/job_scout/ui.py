@@ -23,7 +23,16 @@ log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).parent / "web"
 
 #: Statuses the UI offers as filter chips and status updates.
-STATUSES = ("new", "applied", "interview", "offer", "rejected", "filtered")
+STATUSES = (
+    "new",
+    "applied",
+    "interview",
+    "offer",
+    "rejected",
+    "filtered",
+    "expired",
+)
+EDITABLE_STATUSES = ("new", "applied", "interview", "offer", "rejected", "filtered")
 
 #: Sort keys accepted by the API, mapped to SQL ORDER BY fragments.
 SORT_OPTIONS = {
@@ -208,9 +217,10 @@ class UIHandler(BaseHTTPRequestHandler):
 
     def _handle_patch(self, job_id: int, payload: dict[str, object]) -> None:
         db = self._db
-        if "status" in payload and payload["status"] not in STATUSES:
+        if "status" in payload and payload["status"] not in EDITABLE_STATUSES:
             self._send_json(
-                {"error": f"status must be one of {STATUSES}"}, HTTPStatus.BAD_REQUEST
+                {"error": f"status must be one of {EDITABLE_STATUSES}"},
+                HTTPStatus.BAD_REQUEST,
             )
             return
         notes = payload.get("notes")

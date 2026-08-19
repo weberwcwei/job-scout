@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from bs4 import BeautifulSoup
 
@@ -81,9 +81,18 @@ class JoraScraper(BaseScraper):
             return []
 
         jobs = []
+        cutoff = (
+            (datetime.now() - timedelta(hours=params.hours_old)).date()
+            if params.hours_old
+            else None
+        )
         for card in cards:
             job = self._parse_card(client, card)
-            if job:
+            if job and (
+                cutoff is None
+                or job.date_posted is None
+                or job.date_posted >= cutoff
+            ):
                 jobs.append(job)
 
         return jobs

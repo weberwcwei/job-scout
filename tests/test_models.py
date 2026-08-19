@@ -443,6 +443,7 @@ class TestScrapeParams:
         assert params.results_wanted == 25
         assert params.hours_old == 72
         assert params.distance_miles == 50
+        assert params.country == "AU"
 
 
 # --- ScrapeRun defaults ---

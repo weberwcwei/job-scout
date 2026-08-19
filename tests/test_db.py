@@ -533,8 +533,12 @@ class TestExpireOldJobs:
     def _insert_aged(self, db, sid, status, age_days):
         _, job_id = db.upsert_job(_make_job(sid, status=status))
         db.conn.execute(
-            "UPDATE jobs SET date_scraped = ? WHERE id = ?",
-            ((datetime.now() - timedelta(days=age_days)).isoformat(), job_id),
+            "UPDATE jobs SET date_scraped = ?, last_seen_at = ? WHERE id = ?",
+            (
+                (datetime.now() - timedelta(days=age_days)).isoformat(),
+                (datetime.now() - timedelta(days=age_days)).isoformat(),
+                job_id,
+            ),
         )
         db.conn.commit()
         return job_id
@@ -558,6 +562,36 @@ class TestExpireOldJobs:
 
     def test_empty_db(self, db):
         assert db.expire_old_jobs(30) == 0
+
+    def test_rescrape_refreshes_last_seen_and_reactivates_expired(self, db):
+        job_id = self._insert_aged(db, "seen-again", "new", 40)
+        assert db.expire_old_jobs(30) == 1
+
+        db.upsert_job(_make_job("seen-again", status="new", score=75))
+
+        job = db.get_job(job_id)
+        assert job.status == "new"
+        assert job.score == 75
+        assert db.expire_old_jobs(30) == 0
+
+    def test_content_match_reactivates_expired(self, db):
+        original = _make_job("expired-content", score=30)
+        original.description = "same rediscovered description " * 10
+        _, job_id = db.upsert_job(original)
+        old = (datetime.now() - timedelta(days=40)).isoformat()
+        db.conn.execute(
+            "UPDATE jobs SET last_seen_at = ? WHERE id = ?", (old, job_id)
+        )
+        db.conn.commit()
+        assert db.expire_old_jobs(30) == 1
+        rediscovered = _make_job("new-source-id", score=75)
+        rediscovered.description = original.description
+
+        db.upsert_job(rediscovered)
+
+        job = db.get_job(job_id)
+        assert job.status == "new"
+        assert job.score == 75
 
 
 class TestRejectDemotesScore:
@@ -608,5 +642,15 @@ class TestRejectDemotesScore:
 
         job = db.get_job(row_id)
         assert job.status == "rejected"
+        assert job.score == 0
+        assert job.score_breakdown["pre_reject_score"] == 85
+
+    def test_repeated_rejection_preserves_original_score(self, db):
+        _, row_id = db.upsert_job(_make_job("r7", score=85))
+        db.update_status(row_id, "rejected")
+
+        db.update_status(row_id, "rejected")
+
+        job = db.get_job(row_id)
         assert job.score == 0
         assert job.score_breakdown["pre_reject_score"] == 85

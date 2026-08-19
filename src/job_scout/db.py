@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     comp_interval   TEXT,
     date_posted     TEXT,
     date_scraped    TEXT NOT NULL,
+    last_seen_at    TEXT NOT NULL,
     score           INTEGER DEFAULT 0,
     score_breakdown TEXT DEFAULT '{}',
     status          TEXT DEFAULT 'new',
@@ -96,8 +97,17 @@ class JobDB:
         if "content_key" not in cols:
             self.conn.execute("ALTER TABLE jobs ADD COLUMN content_key TEXT")
             self.conn.commit()
+        if "last_seen_at" not in cols:
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN last_seen_at TEXT")
+            self.conn.execute(
+                "UPDATE jobs SET last_seen_at = date_scraped WHERE last_seen_at IS NULL"
+            )
+            self.conn.commit()
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_content_key ON jobs(content_key)"
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_last_seen_at ON jobs(last_seen_at DESC)"
         )
         self.conn.commit()
 
@@ -114,19 +124,24 @@ class JobDB:
         existing = cur.fetchone()
         if existing:
             old_status = existing["status"]
-            new_status = job.status if old_status in ("new", "filtered") else old_status
+            new_status = (
+                job.status
+                if old_status in ("new", "filtered", "expired")
+                else old_status
+            )
             if old_status == "rejected":
                 self.conn.execute(
-                    "UPDATE jobs SET updated_at = datetime('now') WHERE id = ?",
-                    (existing["id"],),
+                    "UPDATE jobs SET last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
+                    (job.date_scraped.isoformat(), existing["id"]),
                 )
             else:
                 self.conn.execute(
-                    "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
+                    "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
                     (
                         job.score,
                         json.dumps(job.score_breakdown),
                         new_status,
+                        job.date_scraped.isoformat(),
                         existing["id"],
                     ),
                 )
@@ -141,19 +156,36 @@ class JobDB:
             )
             content_match = cur.fetchone()
             if content_match:
-                if (
+                if content_match["status"] == "expired":
+                    self.conn.execute(
+                        "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
+                        (
+                            job.score,
+                            json.dumps(job.score_breakdown),
+                            job.status,
+                            job.date_scraped.isoformat(),
+                            content_match["id"],
+                        ),
+                    )
+                elif (
                     content_match["status"] != "rejected"
                     and job.score > content_match["score"]
                 ):
                     self.conn.execute(
-                        "UPDATE jobs SET score = ?, score_breakdown = ?, updated_at = datetime('now') WHERE id = ?",
+                        "UPDATE jobs SET score = ?, score_breakdown = ?, last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
                         (
                             job.score,
                             json.dumps(job.score_breakdown),
+                            job.date_scraped.isoformat(),
                             content_match["id"],
                         ),
                     )
-                    self.conn.commit()
+                else:
+                    self.conn.execute(
+                        "UPDATE jobs SET last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
+                        (job.date_scraped.isoformat(), content_match["id"]),
+                    )
+                self.conn.commit()
                 return False, content_match["id"]
 
         comp = job.compensation
@@ -162,9 +194,9 @@ class JobDB:
                 dedup_key, source, source_id, url, title, company,
                 city, state, country, is_remote, description, job_type,
                 comp_min, comp_max, comp_currency, comp_interval,
-                date_posted, date_scraped, score, score_breakdown, status, notes,
+                date_posted, date_scraped, last_seen_at, score, score_breakdown, status, notes,
                 search_term, content_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.dedup_key,
                 job.source.value,
@@ -183,6 +215,7 @@ class JobDB:
                 comp.currency if comp else "USD",
                 comp.interval.value if comp and comp.interval else None,
                 job.date_posted.isoformat() if job.date_posted else None,
+                job.date_scraped.isoformat(),
                 job.date_scraped.isoformat(),
                 job.score,
                 json.dumps(job.score_breakdown),
@@ -257,7 +290,9 @@ class JobDB:
             updates.append(
                 "score_breakdown = json_set("
                 "CASE WHEN json_valid(score_breakdown) THEN score_breakdown ELSE '{}' END, "
-                "'$.pre_reject_score', score)"
+                "'$.pre_reject_score', COALESCE("
+                "json_extract(CASE WHEN json_valid(score_breakdown) THEN score_breakdown ELSE '{}' END, '$.pre_reject_score'), "
+                "score))"
             )
         params.append(job_id)
         self.conn.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", params)
@@ -270,14 +305,12 @@ class JobDB:
         """Mark `new`/`filtered` jobs unseen for `days` as expired.
 
         User-tracked statuses (applied/interview/offer/rejected) are never
-        touched — they are history, not inventory. Age uses first-seen
-        (`date_scraped`), which is always set, rather than `date_posted`
-        (often missing for scraped rows).
+        touched — they are history, not inventory.
         """
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         cur = self.conn.execute(
             """UPDATE jobs SET status = 'expired', updated_at = datetime('now')
-            WHERE status IN ('new', 'filtered') AND date_scraped < ?""",
+            WHERE status IN ('new', 'filtered') AND last_seen_at < ?""",
             (cutoff,),
         )
         self.conn.commit()

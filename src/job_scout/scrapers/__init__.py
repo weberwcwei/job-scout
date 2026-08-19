@@ -20,6 +20,7 @@ log = logging.getLogger("job_scout.scrapers")
 # their own client, so without shared state the aggregate request rate to a
 # host is unbounded (6 workers sleeping 0.5-2s in parallel still burst).
 _host_lock = threading.Lock()
+_host_dispatch_locks: dict[str, threading.Lock] = {}
 _last_request_at: dict[str, float] = {}
 
 
@@ -57,19 +58,36 @@ class DescriptionCache:
             return self._values[key]
 
 
+def _get_host_dispatch_lock(host: str) -> threading.Lock:
+    with _host_lock:
+        return _host_dispatch_locks.setdefault(host, threading.Lock())
+
+
+def _reserve_host_request(host: str, min_interval: float) -> None:
+    while True:
+        now = time.monotonic()
+        wait = _last_request_at.get(host, 0.0) + min_interval - now
+        if wait <= 0:
+            _last_request_at[host] = now
+            return
+        time.sleep(wait)
+
+
 def _wait_host_gate(host: str, min_interval: float) -> None:
     """Sleep until `min_interval` seconds have passed since the last request
     to `host` from any worker in this process."""
     if min_interval <= 0 or not host:
         return
-    while True:
-        with _host_lock:
-            now = time.monotonic()
-            wait = _last_request_at.get(host, 0.0) + min_interval - now
-            if wait <= 0:
-                _last_request_at[host] = now
-                return
-        time.sleep(wait)
+    with _get_host_dispatch_lock(host):
+        _reserve_host_request(host, min_interval)
+
+
+def _dispatch_host_request(host: str, min_interval: float, request):
+    if min_interval <= 0 or not host:
+        return request()
+    with _get_host_dispatch_lock(host):
+        _reserve_host_request(host, min_interval)
+        return request()
 
 
 class ScraperError(Exception):
@@ -140,9 +158,12 @@ class BaseScraper(ABC):
         host = urlparse(url).netloc
         for attempt in range(self.config.max_retries + 1):
             self._delay()
-            _wait_host_gate(host, self.config.min_request_interval_seconds)
             try:
-                resp = client.get(url, **kwargs)
+                resp = _dispatch_host_request(
+                    host,
+                    self.config.min_request_interval_seconds,
+                    lambda: client.get(url, **kwargs),
+                )
                 if resp.status_code == 429:
                     wait = min(2**attempt * 10, 60)
                     retry_after = resp.headers.get("Retry-After")
@@ -169,9 +190,12 @@ class BaseScraper(ABC):
         host = urlparse(url).netloc
         for attempt in range(self.config.max_retries + 1):
             self._delay()
-            _wait_host_gate(host, self.config.min_request_interval_seconds)
             try:
-                resp = client.post(url, **kwargs)
+                resp = _dispatch_host_request(
+                    host,
+                    self.config.min_request_interval_seconds,
+                    lambda: client.post(url, **kwargs),
+                )
                 if resp.status_code == 429:
                     wait = min(2**attempt * 10, 60)
                     retry_after = resp.headers.get("Retry-After")

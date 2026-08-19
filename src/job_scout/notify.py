@@ -313,6 +313,82 @@ def _score_color(score: int) -> int:
     return 0xE74C3C  # red
 
 
+def _truncate_discord(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    if limit <= 3:
+        return value[:limit]
+    return value[: limit - 3] + "..."
+
+
+def _fit_discord_embed(embed: dict) -> dict:
+    fitted = dict(embed)
+    remaining = 6000
+
+    title = _truncate_discord(str(fitted.get("title", "")), min(256, remaining))
+    if title:
+        fitted["title"] = title
+        remaining -= len(title)
+
+    description = _truncate_discord(
+        str(fitted.get("description", "")), min(4096, remaining)
+    )
+    if description:
+        fitted["description"] = description
+        remaining -= len(description)
+
+    fields = []
+    for field in fitted.get("fields", [])[:25]:
+        if remaining <= 0:
+            break
+        normalized = dict(field)
+        name = _truncate_discord(
+            str(normalized.get("name", "")), min(256, remaining)
+        )
+        remaining -= len(name)
+        value = _truncate_discord(
+            str(normalized.get("value", "")), min(1024, remaining)
+        )
+        remaining -= len(value)
+        normalized["name"] = name
+        normalized["value"] = value
+        fields.append(normalized)
+    if "fields" in fitted:
+        fitted["fields"] = fields
+
+    for key, limit in (("footer", 2048), ("author", 256)):
+        nested = fitted.get(key)
+        text_key = "text" if key == "footer" else "name"
+        if not isinstance(nested, dict) or text_key not in nested:
+            continue
+        normalized = dict(nested)
+        value = _truncate_discord(
+            str(normalized[text_key]), min(limit, remaining)
+        )
+        normalized[text_key] = value
+        fitted[key] = normalized
+        remaining -= len(value)
+
+    return fitted
+
+
+def _discord_embed_chars(embed: dict) -> int:
+    total = len(str(embed.get("title", ""))) + len(
+        str(embed.get("description", ""))
+    )
+    total += sum(
+        len(str(field.get("name", ""))) + len(str(field.get("value", "")))
+        for field in embed.get("fields", [])
+    )
+    footer = embed.get("footer", {})
+    author = embed.get("author", {})
+    if isinstance(footer, dict):
+        total += len(str(footer.get("text", "")))
+    if isinstance(author, dict):
+        total += len(str(author.get("name", "")))
+    return total
+
+
 def send_discord(
     cfg: DiscordConfig,
     content: str | None = None,
@@ -321,9 +397,9 @@ def send_discord(
 ) -> bool:
     """POST to Discord webhook. Returns True if all chunked posts succeed.
 
-    Sends ``embeds`` in batches of 10 (Discord per-message limit). The first
-    batch carries ``content``; subsequent batches are embed-only. The legacy
-    ``text`` arg posts a single ``{"content": text}`` payload unchanged.
+    Sends embeds within Discord's count and character limits. The first batch
+    carries ``content``; subsequent batches are embed-only. The legacy ``text``
+    arg posts a single ``{"content": text}`` payload unchanged.
     """
     if not cfg.webhook_url:
         log.error("Discord not configured (missing webhook_url)")
@@ -350,16 +426,25 @@ def send_discord(
     if embeds is None:
         embeds = []
 
-    # Chunk embeds into batches of 10 (Discord limit)
-    chunks: list[list[dict]] = [
-        embeds[i : i + 10] for i in range(0, len(embeds), 10)
-    ] or [[]]
+    normalized_embeds = [_fit_discord_embed(embed) for embed in embeds]
+    chunks: list[list[dict]] = []
+    chunk: list[dict] = []
+    chunk_chars = 0
+    for embed in normalized_embeds:
+        embed_chars = _discord_embed_chars(embed)
+        if chunk and (len(chunk) == 10 or chunk_chars + embed_chars > 6000):
+            chunks.append(chunk)
+            chunk = []
+            chunk_chars = 0
+        chunk.append(embed)
+        chunk_chars += embed_chars
+    chunks.append(chunk)
 
     all_ok = True
     for idx, chunk in enumerate(chunks):
         payload: dict = {}
         if idx == 0 and content:
-            payload["content"] = content
+            payload["content"] = _truncate_discord(content, 2000)
         if chunk:
             payload["embeds"] = chunk
         if not payload:

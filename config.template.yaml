@@ -46,7 +46,7 @@ search:
     - "software engineer"         # job titles to search for — add as many as you like
     - "backend engineer"
   locations:
-    - "United States"             # search location(s)
+    - "Australia"                 # search location(s)
   sites:
     - linkedin                     # ✅ works without TLS
     - indeed                       # ✅ works without TLS (uses hardcoded API key)
@@ -54,8 +54,8 @@ search:
   results_per_site: 25            # jobs to fetch per site per search term
   hours_old: 72                   # only include jobs posted in the last N hours
   distance_miles: 50
-  country: US                     # country code for Indeed API (e.g. AU, GB, CA); must match your locations
-  expire_days: 30                 # mark new/filtered jobs older than this (first seen) as expired on each scrape
+  country: AU                     # country code for Indeed API (e.g. US, GB, CA); must match your locations
+  expire_days: 30                 # expire new/filtered jobs not seen for this many days
 
 scraping:
   delay_min_seconds: 0.5          # wait at least this long between requests (be polite)
@@ -73,8 +73,8 @@ scoring:
   min_alert_score: 45             # send email alert when a job scores at or above this
   min_display_score: 20           # show jobs in CLI list at or above this score
   alert_states:                   # only alert for jobs in these states (empty = all states)
-    - "CA"
-    - "California"
+    - "NSW"
+    - "Victoria"
 
 notifications:
   macos:

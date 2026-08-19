@@ -287,6 +287,35 @@ class TestJoraScraper:
         assert "python" in desc
         assert scraper.description_cache[("jora", "job123")] == desc
 
+    def test_filters_cards_older_than_requested_window(self, scraping_config):
+        from job_scout.scrapers.jora import JoraScraper
+
+        html = """
+        <article class="job-card">
+          <div class="job-title"><a href="/job/Old-job-old1">Old job</a></div>
+          <div class="job-listed-date">Posted 10d ago</div>
+        </article>
+        <article class="job-card">
+          <div class="job-title"><a href="/job/New-job-new1">New job</a></div>
+          <div class="job-listed-date">Posted today</div>
+        </article>
+        """
+        params = ScrapeParams(
+            search_term="engineer",
+            location="Australia",
+            results_wanted=10,
+            hours_old=72,
+            country="AU",
+        )
+        scraper = JoraScraper(scraping_config)
+        with respx.mock:
+            respx.get(url__startswith="https://au.jora.com/j?").mock(
+                return_value=httpx.Response(200, text=html)
+            )
+            jobs = scraper.scrape(params)
+
+        assert [job.title for job in jobs] == ["New job"]
+
 
 class TestScraperRegistry:
     def test_all_sites_registered(self):

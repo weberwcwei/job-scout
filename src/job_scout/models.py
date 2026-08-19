@@ -335,4 +335,4 @@ class ScrapeParams(BaseModel):
     results_wanted: int = 25
     hours_old: int = 72
     distance_miles: int = 50
-    country: str = "US"
+    country: str = "AU"

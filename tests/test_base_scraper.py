@@ -131,13 +131,45 @@ class TestHostGate:
         with (
             patch.object(scraper, "_delay", side_effect=lambda: calls.append("delay")),
             patch(
-                "job_scout.scrapers._wait_host_gate",
-                side_effect=lambda *args: calls.append("gate"),
+                "job_scout.scrapers._dispatch_host_request",
+                side_effect=lambda host, interval, request: (
+                    calls.append("dispatch"),
+                    request(),
+                )[1],
             ),
         ):
             scraper._get_with_retry(client, "https://example.com/jobs")
 
-        assert calls == ["delay", "gate", "get"]
+        assert calls == ["delay", "dispatch", "get"]
+
+    def test_same_host_dispatch_is_serialized(self):
+        from job_scout.scrapers import _dispatch_host_request
+
+        first_started = Event()
+        release_first = Event()
+        second_started = Event()
+
+        def first_request():
+            first_started.set()
+            release_first.wait(timeout=1)
+
+        def second_request():
+            second_started.set()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(
+                _dispatch_host_request, "dispatch.example.com", 0.01, first_request
+            )
+            assert first_started.wait(timeout=1)
+            second = pool.submit(
+                _dispatch_host_request, "dispatch.example.com", 0.01, second_request
+            )
+            assert not second_started.wait(timeout=0.05)
+            release_first.set()
+            first.result(timeout=1)
+            second.result(timeout=1)
+
+        assert second_started.is_set()
 
 
 class TestDescriptionCache:

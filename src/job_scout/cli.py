@@ -213,7 +213,7 @@ def scrape(
     expired = db.expire_old_jobs(cfg.search.expire_days) if db else 0
     if expired:
         console.print(
-            f"[dim]{expired} job(s) older than {cfg.search.expire_days} days "
+            f"[dim]{expired} job(s) not seen for {cfg.search.expire_days} days "
             f"expired.[/dim]"
         )
 

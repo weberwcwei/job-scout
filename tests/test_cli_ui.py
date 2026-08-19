@@ -85,6 +85,7 @@ class TestMeta:
         assert counts["new"] == 1
         assert counts["applied"] == 1
         assert counts["rejected"] == 1
+        assert counts["expired"] == 0
         assert counts["interview"] == 0
         assert set(data["sources"]) == {"linkedin", "indeed"}
         assert data["total"] == 3
@@ -107,6 +108,18 @@ class TestJobs:
 
         _, data = _get(f"{server}/api/jobs?status=applied")
         assert [j["url"] for j in data["jobs"]] == ["https://example.com/a2"]
+
+    def test_expired_status_filter(self, db, server):
+        db.upsert_job(_make_job("a1", status="new"))
+        _, expired_id = db.upsert_job(_make_job("a2", status="new"))
+        db.conn.execute(
+            "UPDATE jobs SET status = 'expired' WHERE id = ?", (expired_id,)
+        )
+        db.conn.commit()
+
+        _, data = _get(f"{server}/api/jobs?status=expired")
+
+        assert [job["status"] for job in data["jobs"]] == ["expired"]
 
     def test_search_filter(self, db, server):
         db.upsert_job(_make_job("a1", title="Backend Engineer", company="Acme"))
@@ -165,6 +178,20 @@ class TestPatch:
         )
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(req)  # noqa: S310 - test-only localhost
+        assert exc_info.value.code == 400
+
+    def test_expired_status_cannot_be_set_manually(self, db, server):
+        _, job_id = db.upsert_job(_make_job("a1"))
+        req = urllib.request.Request(
+            f"{server}/api/jobs/{job_id}",
+            data=json.dumps({"status": "expired"}).encode(),
+            method="PATCH",
+            headers={"Content-Type": "application/json"},
+        )
+
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req)  # noqa: S310 - test-only localhost
+
         assert exc_info.value.code == 400
 
     def test_unknown_job_404(self, server):

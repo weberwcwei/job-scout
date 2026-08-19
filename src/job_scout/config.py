@@ -59,7 +59,7 @@ class SearchConfig(BaseModel):
     results_per_site: int = 25
     hours_old: int = 72
     distance_miles: int = 50
-    country: str = "US"
+    country: str = "AU"
     expire_days: int = 30
 
 

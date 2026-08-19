@@ -95,6 +95,10 @@ class TestSearchConfigDefaults:
         assert "linkedin" in cfg.sites
         assert "indeed" in cfg.sites
 
+    def test_country_defaults_to_australia(self):
+        cfg = SearchConfig(terms=["eng"], locations=["Australia"])
+        assert cfg.country == "AU"
+
 
 class TestBackwardCompat:
     def test_minimal_config_loads(self):
