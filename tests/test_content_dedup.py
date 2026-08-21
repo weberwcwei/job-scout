@@ -424,9 +424,9 @@ class TestFindDuplicates:
                 dedup_key, source, source_id, url, title, company,
                 city, state, country, is_remote, description, job_type,
                 comp_min, comp_max, comp_currency, comp_interval,
-                date_posted, date_scraped, score, score_breakdown, status, notes,
+                date_posted, date_scraped, last_seen_at, score, score_breakdown, status, notes,
                 search_term, content_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job2.dedup_key,
                 job2.source.value,
@@ -445,6 +445,7 @@ class TestFindDuplicates:
                 "USD",
                 None,
                 job2.date_posted.isoformat() if job2.date_posted else None,
+                job2.date_scraped.isoformat(),
                 job2.date_scraped.isoformat(),
                 job2.score,
                 "{}",
@@ -592,9 +593,9 @@ class TestDeduplicate:
                 dedup_key, source, source_id, url, title, company,
                 city, state, country, is_remote, description, job_type,
                 comp_min, comp_max, comp_currency, comp_interval,
-                date_posted, date_scraped, score, score_breakdown, status, notes,
+                date_posted, date_scraped, last_seen_at, score, score_breakdown, status, notes,
                 search_term, content_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.dedup_key,
                 job.source.value,
@@ -613,6 +614,7 @@ class TestDeduplicate:
                 comp.currency if comp else "USD",
                 comp.interval.value if comp and comp.interval else None,
                 job.date_posted.isoformat() if job.date_posted else None,
+                job.date_scraped.isoformat(),
                 job.date_scraped.isoformat(),
                 job.score,
                 json.dumps(job.score_breakdown),
@@ -727,9 +729,9 @@ class TestDedupCLI:
             """INSERT INTO jobs (
                 dedup_key, source, source_id, url, title, company,
                 city, state, country, is_remote, description, job_type,
-                date_posted, date_scraped, score, score_breakdown, status, notes,
+                date_posted, date_scraped, last_seen_at, score, score_breakdown, status, notes,
                 search_term, content_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job2.dedup_key,
                 job2.source.value,
@@ -744,6 +746,7 @@ class TestDedupCLI:
                 job2.description,
                 "[]",
                 job2.date_posted.isoformat() if job2.date_posted else None,
+                job2.date_scraped.isoformat(),
                 job2.date_scraped.isoformat(),
                 job2.score,
                 "{}",
