@@ -53,7 +53,9 @@ def run_poll(
     for company in companies:
         adapter_cls = get_adapter(company.ats)
         if adapter_cls is None:
-            log.warning("no adapter for provider %s; skipping %s", company.ats, company.name)
+            log.warning(
+                "no adapter for provider %s; skipping %s", company.ats, company.name
+            )
             continue
         adapter = adapter_cls(scrap)
         try:
@@ -80,7 +82,12 @@ def run_poll(
             candidate = project(job)
             existing = db.get_canonical(candidate.canonical_key)
             canonical = merge(existing, job) if existing else candidate
-            # We just saw this job in the current crawl: reopen it.
+            # We just saw this job in the current crawl: reopen it. If it was
+            # previously closed, surface it as a repost.
+            if existing is not None and (
+                existing.status == "closed" or existing.closed_at is not None
+            ):
+                canonical.repost = True
             canonical.status = "open"
             canonical.closed_at = None
             job_score, breakdown = score_job(job, company_score=company_score)
@@ -95,7 +102,8 @@ def run_poll(
 
     # Close detection: fixed threshold of consecutive missing crawls.
     threshold = getattr(cfg.discovery, "missing_crawls_before_close", 3)
-    cutoff = datetime.now() - timedelta(days=threshold)
+    poll_interval_hours = getattr(cfg.schedule, "poll_interval_hours", 12) or 12
+    cutoff = datetime.now() - timedelta(hours=threshold * poll_interval_hours)
     if not dry_run:
         summary["closed_at_jobs"] = db.close_ats_jobs_missing_since(cutoff)
         summary["closed_canonical"] = db.close_canonical_jobs_missing_since(cutoff)
@@ -120,7 +128,11 @@ def run_resolve(
 
     resolver = CompanyResolver(scrap)
     # Resolve companies that lack full ATS resolution.
-    candidates = [c for c in db.get_companies() if (c.ats == ATSProvider.UNKNOWN or not c.ats_slug)]
+    candidates = [
+        c
+        for c in db.get_companies()
+        if (c.ats == ATSProvider.UNKNOWN or not c.ats_slug)
+    ]
     if limit is not None:
         candidates = candidates[:limit]
 

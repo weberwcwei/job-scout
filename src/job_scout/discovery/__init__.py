@@ -117,14 +117,21 @@ def run_discovery(config: DiscoveryConfig, db: JobDB, *, dry_run: bool = False) 
     added = 0
     updated = 0
     for company in merged:
+        if dry_run:
+            continue
         is_new, _ = db.upsert_company(company)
         if is_new:
             added += 1
         else:
             updated += 1
 
-    total = len(db.get_companies())
-    log.info("discovery complete: %d merged, %d added, %d updated", len(merged), added, updated)
+    total = len(db.get_companies()) if not dry_run else 0
+    log.info(
+        "discovery complete: %d merged, %d added, %d updated",
+        len(merged),
+        added,
+        updated,
+    )
     return {
         "enabled": True,
         "candidates": len(merged),
