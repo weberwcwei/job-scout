@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, PrivateAttr, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 
 class ConfigDiagnostic(BaseModel):
@@ -89,6 +89,7 @@ class ScrapingConfig(BaseModel):
 class ScoringConfig(BaseModel):
     min_alert_score: int = 55
     min_display_score: int = 20
+    low_score_threshold: int = 20
     alert_states: list[str] = []
 
     @model_validator(mode="after")
@@ -164,6 +165,34 @@ class ScheduleConfig(BaseModel):
     digest_minute: int = 0
     report_hour: int = 8
     report_minute: int = 50
+    discover_hour: int = 8
+    discover_minute: int = 15
+    poll_interval_hours: int = 12
+
+
+class DiscoveryConfig(BaseModel):
+    """ATS discovery subsystem settings (see ATS_DISCOVERY.md)."""
+
+    enabled: bool = False
+    vc_portfolios: list[str] = Field(
+        default_factory=lambda: [
+            "blackbird",
+            "airtree",
+            "squarepeg",
+            "mainsequence",
+            "startmate",
+        ]
+    )
+    funding_sources: list[str] = Field(
+        default_factory=lambda: [
+            "startupdaily",
+            "smartcompany",
+            "techcrunch_au",
+        ]
+    )
+    ats_search_enabled: bool = True
+    seed_companies: list[str] = Field(default_factory=list)
+    missing_crawls_before_close: int = 3
 
 
 class AppConfig(BaseModel):
@@ -174,6 +203,7 @@ class AppConfig(BaseModel):
     notifications: NotificationsConfig = NotificationsConfig()
     schedule: ScheduleConfig = ScheduleConfig()
     bot: BotConfig = BotConfig()
+    discovery: DiscoveryConfig = DiscoveryConfig()
     db_path: Path | None = None
     report_dir: Path = Path.home() / ".local" / "share" / "job-scout" / "reports"
     config_name: str | None = None

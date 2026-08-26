@@ -72,6 +72,7 @@ scraping:
 scoring:
   min_alert_score: 45             # send email alert when a job scores at or above this
   min_display_score: 20           # show jobs in CLI list at or above this score
+  low_score_threshold: 20         # jobs scoring below this are auto-filed as 'low_score' (not new)
   alert_states:                   # only alert for jobs in these states (empty = all states)
     - "NSW"
     - "Victoria"
@@ -102,6 +103,22 @@ schedule:
   interval_hours: 6               # run scraper every N hours
   start_hour: 8                   # don't run before this hour (local time)
   end_hour: 23                    # don't run after this hour (local time)
+
+discovery:                        # ATS discovery subsystem (see ATS_DISCOVERY.md)
+  enabled: false                  # master switch for `job-scout discover` / `poll`
+  vc_portfolios:                  # VC portfolio pages to scrape for companies
+    - blackbird
+    - airtree
+    - squarepeg
+    - mainsequence
+    - startmate
+  funding_sources:                # funding-news feeds (VC pages + RSS)
+    - startupdaily
+    - smartcompany
+    - techcrunch_au
+  ats_search_enabled: true        # DuckDuckGo site: search over ATS domains (best-effort)
+  seed_companies: []              # bootstrap list of known ATS boards
+  missing_crawls_before_close: 3  # consecutive missing crawls before a job is closed
 
 # config_name: my-search                 # override profile name (default: derived from filename)
 # db_path: /path/to/custom/job-scout.db  # override default DB location

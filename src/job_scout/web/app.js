@@ -2,8 +2,8 @@
 
 "use strict";
 
-const STATUSES = ["new", "applied", "interview", "offer", "rejected", "filtered", "expired"];
-const EDITABLE_STATUSES = ["new", "applied", "interview", "offer", "rejected", "filtered"];
+const STATUSES = ["new", "applied", "interview", "offer", "rejected", "filtered", "low_score", "expired"];
+const EDITABLE_STATUSES = ["new", "applied", "interview", "offer", "rejected", "filtered", "low_score"];
 
 const STATUS_COLORS = {
   new: "var(--status-new)",
@@ -12,11 +12,16 @@ const STATUS_COLORS = {
   offer: "var(--status-offer)",
   rejected: "var(--status-rejected)",
   filtered: "var(--status-filtered)",
+  low_score: "var(--status-low_score)",
   expired: "var(--status-expired)",
 };
 
+const PAGE_SIZE = 100;
+
 const state = {
   jobs: [],
+  total: 0,
+  loaded: 0,
   meta: { statuses: [], sources: [], total: 0 },
   filter: "all",
   q: "",
@@ -32,6 +37,7 @@ const sourceEl = $("source");
 const sortEl = $("sort");
 const emptyEl = $("empty");
 const statusLineEl = $("status-line");
+const loadMoreEl = $("load-more");
 const detailEl = $("detail");
 const detailBodyEl = $("detail-body");
 const rowTemplate = $("row-template");
@@ -45,11 +51,13 @@ async function fetchJSON(url, options) {
   return data;
 }
 
-function loadJobs() {
+function loadJobs(offset = 0, limit = PAGE_SIZE) {
   const params = new URLSearchParams();
   if (state.filter !== "all") params.set("status", state.filter);
   if (state.source) params.set("source", state.source);
   params.set("sort", state.sort);
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
   return fetchJSON("/api/jobs?" + params.toString());
 }
 
@@ -177,7 +185,7 @@ function buildRow(job) {
     try {
       await patchJob(job.id, { status: select.value });
       job.status = select.value;
-      await refresh(true);
+      await refresh();
     } catch (err) {
       statusLineEl.textContent = `update failed: ${err.message}`;
       select.disabled = false;
@@ -200,20 +208,33 @@ function render(jobs) {
 
   emptyEl.hidden = visible.length > 0;
   const label = state.filter === "all" ? "all jobs" : `status "${state.filter}"`;
-  statusLineEl.textContent = `${visible.length} of ${jobs.length} shown (${label})`;
+  statusLineEl.textContent = `${visible.length} of ${state.total} shown (${label})`;
+  loadMoreEl.hidden = state.loaded >= state.total;
 }
 
-async function refresh(keepFilter) {
+async function refresh() {
   try {
-    const data = await loadJobs();
-    if (!keepFilter) state.jobs = data.jobs;
-    else state.jobs = data.jobs; // server already applied the filter
-    render(state.jobs);
-    // Refresh chip counts + sources from meta so status updates stay truthful.
+    await loadPage(0);
     const meta = await fetchJSON("/api/meta");
     state.meta = meta;
     renderChips();
     populateSources(meta.sources);
+  } catch (err) {
+    statusLineEl.textContent = `load failed: ${err.message}`;
+  }
+}
+
+async function loadPage(offset) {
+  const data = await loadJobs(offset, PAGE_SIZE);
+  state.jobs = offset === 0 ? data.jobs : state.jobs.concat(data.jobs);
+  state.loaded = state.jobs.length;
+  state.total = data.total;
+  render(state.jobs);
+}
+
+async function loadMore() {
+  try {
+    await loadPage(state.loaded);
   } catch (err) {
     statusLineEl.textContent = `load failed: ${err.message}`;
   }
@@ -291,8 +312,10 @@ sourceEl.addEventListener("change", () => {
 
 sortEl.addEventListener("change", () => {
   state.sort = sortEl.value;
-  render(state.jobs);
+  refresh();
 });
+
+loadMoreEl.addEventListener("click", loadMore);
 
 $("detail-close").addEventListener("click", () => detailEl.close());
 detailEl.addEventListener("click", (e) => {
@@ -307,9 +330,7 @@ detailEl.addEventListener("click", (e) => {
     state.meta = meta;
     renderChips();
     populateSources(meta.sources);
-    const data = await loadJobs();
-    state.jobs = data.jobs;
-    render(state.jobs);
+    await loadPage(0);
   } catch (err) {
     statusLineEl.textContent = `failed to load: ${err.message}`;
   }

@@ -16,6 +16,7 @@
   --status-offer: #34d399;
   --status-rejected: #f87171;
   --status-filtered: #6b7280;
+  --status-low_score: #9a7b3f;
   --status-expired: #6b7384;
 
   --score-high: #34d399;
@@ -256,6 +257,25 @@ html, body {
 }
 
 /* ---------- empty state ---------- */
+
+.load-more-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.load-more {
+  background: var(--bg-raise);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 20px;
+  font-size: 13px;
+  font-family: var(--font);
+  cursor: pointer;
+}
+
+.load-more:hover { background: var(--bg-hover); }
 
 .empty {
   text-align: center;

@@ -30,9 +30,18 @@ STATUSES = (
     "offer",
     "rejected",
     "filtered",
+    "low_score",
     "expired",
 )
-EDITABLE_STATUSES = ("new", "applied", "interview", "offer", "rejected", "filtered")
+EDITABLE_STATUSES = (
+    "new",
+    "applied",
+    "interview",
+    "offer",
+    "rejected",
+    "filtered",
+    "low_score",
+)
 
 #: Sort keys accepted by the API, mapped to SQL ORDER BY fragments.
 SORT_OPTIONS = {
@@ -178,7 +187,8 @@ class UIHandler(BaseHTTPRequestHandler):
         source = self._first(query, "source") or None
         q = (self._first(query, "q") or "").strip().lower()
         sort = SORT_OPTIONS.get(self._first(query, "sort") or "", SORT_OPTIONS["score"])
-        limit = self._int_param(query, "limit")
+        limit = self._int_param(query, "limit") or 100
+        offset = self._int_param(query, "offset") or 0
 
         clauses = []
         params: list[object] = []
@@ -194,14 +204,15 @@ class UIHandler(BaseHTTPRequestHandler):
             params.extend([like, like])
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = f"SELECT * FROM jobs {where} ORDER BY {sort}"
-        if limit is not None:
-            sql += " LIMIT ?"
-            params.append(limit)
+        total = db.conn.execute(
+            f"SELECT COUNT(*) AS n FROM jobs {where}", params
+        ).fetchone()["n"]
+        sql = f"SELECT * FROM jobs {where} ORDER BY {sort} LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
         rows = db.conn.execute(sql, params).fetchall()
         jobs = [_job_dict(db._row_to_job(r)) for r in rows]
-        self._send_json({"jobs": jobs, "count": len(jobs)})
+        self._send_json({"jobs": jobs, "count": len(jobs), "total": total})
 
     def _handle_job_detail(self, path: str) -> None:
         db = self._db
@@ -259,7 +270,7 @@ class UIHandler(BaseHTTPRequestHandler):
         if raw is None:
             return None
         try:
-            return max(1, int(raw))
+            return int(raw)
         except ValueError:
             return None
 

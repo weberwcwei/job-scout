@@ -111,6 +111,7 @@ def scrape(
     total_found = 0
     total_new = 0
     total_filtered = 0
+    total_low_score = 0
 
     # Build task list for concurrent execution
     tasks = [
@@ -190,6 +191,9 @@ def scrape(
                             f"  [dim]{job.score}[/dim] | {job.company}: {job.title} | [red]dealbreaker[/red]"
                         )
                     continue
+                if job.score < cfg.scoring.low_score_threshold:
+                    job.status = "low_score"
+                    total_low_score += 1
 
                 total_found += 1
 
@@ -220,6 +224,8 @@ def scrape(
     parts = [f"Found {total_found} jobs", f"{total_new} new"]
     if total_filtered:
         parts.append(f"{total_filtered} filtered by dealbreakers")
+    if total_low_score:
+        parts.append(f"{total_low_score} low score")
     console.print(f"\n[bold]Done.[/bold] {', '.join(parts)}.")
 
     if new_high_score and not dry_run:
@@ -233,10 +239,110 @@ def scrape(
         db.close()
 
 
+@app.command()
+def discover(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be discovered without persisting"
+    ),
+):
+    """Discover companies from VC portfolios, funding news, and ATS search."""
+    from job_scout.discovery import run_discovery
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    try:
+        summary = run_discovery(cfg.discovery, db, dry_run=dry_run)
+        prefix = "[DRY RUN] " if dry_run else ""
+        console.print(
+            f"{prefix}Discovery: {summary.get('candidates', 0)} candidates, "
+            f"{summary.get('added', 0)} added, {summary.get('updated', 0)} updated."
+        )
+        if not cfg.discovery.enabled:
+            console.print(
+                "[yellow]Set discovery.enabled: true in config to run discovery.[/yellow]"
+            )
+    finally:
+        db.close()
+
+
+@app.command()
+def poll(
+    resolve: bool = typer.Option(
+        False, "--resolve", help="Run discovery + company resolution before polling"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be polled without persisting"
+    ),
+):
+    """Poll known ATS boards, normalise, score, and persist canonical jobs."""
+    from job_scout.poller import run_poll, run_resolve
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    try:
+        if resolve:
+            resolved = run_resolve(cfg, db, dry_run=dry_run)
+            console.print(
+                f"Resolved {resolved['resolved']} companies, "
+                f"{resolved['unresolved']} unresolved."
+            )
+        summary = run_poll(cfg, db, dry_run=dry_run)
+        prefix = "[DRY RUN] " if dry_run else ""
+        console.print(
+            f"{prefix}Polled {summary['companies']} companies, {summary['jobs']} jobs, "
+            f"{summary['new_source']} new source records, "
+            f"{summary['new_canonical']} new canonical records."
+        )
+        if summary["closed_canonical"]:
+            console.print(
+                f"  {summary['closed_canonical']} canonical jobs closed "
+                f"(missing after {cfg.discovery.missing_crawls_before_close} crawls)."
+            )
+    finally:
+        db.close()
+
+
+@app.command()
+def coverage(
+    days: int = typer.Option(14, help="Staleness window in days"),
+):
+    """Show ATS registry health, polling stats, and scoring component means."""
+    from job_scout.coverage import coverage_report
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    try:
+        report = coverage_report(db, days=days)
+        reg = report["registry"]
+        console.print(
+            f"Registry: {reg['total']} companies, {reg['resolved']} resolved, "
+            f"{reg['pollable']} pollable"
+        )
+        prov = ", ".join(f"{k}={v}" for k, v in reg["by_provider"].items())
+        console.print(f"  by provider: {prov}")
+        poll = report["poll"]
+        console.print(
+            f"Polling: {poll['companies_polled']} companies, "
+            f"{poll['ats_open_jobs']} open / {poll['ats_closed_jobs']} closed source jobs, "
+            f"{poll['canonical_open']} open / {poll['canonical_closed']} closed canonical"
+        )
+        if poll["stale_companies"]:
+            console.print(
+                f"  [yellow]{poll['stale_companies']} companies not verified in "
+                f"{days} days[/yellow]"
+            )
+        console.print("Score means (open canonical):")
+        for row in report["score_means"]:
+            value = row["mean"] if row["mean"] is not None else "—"
+            console.print(f"  {row['component']}: {value}")
+    finally:
+        db.close()
+
+
 @app.command("list")
 def list_jobs(
     status: str = typer.Option(
-        "new", help="Filter by status: new, applied, rejected, filtered, expired, all"
+        "new", help="Filter by status: new, applied, rejected, filtered, low_score, expired, all"
     ),
     min_score: int = typer.Option(None, "--min-score", help="Minimum score filter"),
     company: str = typer.Option(None, help="Filter by company name"),
@@ -299,7 +405,7 @@ def export(
         help="Output format: csv or json (default: inferred from extension, falls back to csv)",
     ),
     status: str = typer.Option(
-        "all", help="Filter by status: new, applied, rejected, filtered, expired, all"
+        "all", help="Filter by status: new, applied, rejected, filtered, low_score, expired, all"
     ),
     min_score: int = typer.Option(None, "--min-score", help="Minimum score filter"),
     company: str = typer.Option(None, help="Company name substring filter"),
@@ -676,6 +782,10 @@ def schedule(
         console.print(
             f"Report: daily at {cfg.schedule.report_hour:02d}:{cfg.schedule.report_minute:02d}"
         )
+        console.print(
+            f"Discover: daily at {cfg.schedule.discover_hour:02d}:{cfg.schedule.discover_minute:02d}"
+        )
+        console.print(f"Poll: every {cfg.schedule.poll_interval_hours} hours")
     elif uninstall_flag:
         cfg = _get_config()
         data_paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
@@ -985,10 +1095,16 @@ def rescore(
             updates.append((job.id, new_score, breakdown))
         # Track dealbreaker status transitions
         is_dealbreaker = breakdown.get("dealbreaker", False)
-        if is_dealbreaker and job.status == "new":
+        if is_dealbreaker and job.status in ("new", "low_score"):
             status_updates.append((job.id, "filtered"))
         elif not is_dealbreaker and job.status == "filtered":
             status_updates.append((job.id, "new"))
+        elif not is_dealbreaker:
+            # Auto-file low-scoring jobs so they don't clutter the "new" view.
+            if job.status == "new" and new_score < cfg.scoring.low_score_threshold:
+                status_updates.append((job.id, "low_score"))
+            elif job.status == "low_score" and new_score >= cfg.scoring.low_score_threshold:
+                status_updates.append((job.id, "new"))
 
     if not updates and not status_updates:
         console.print(f"Rescored {total} jobs — no changes.")

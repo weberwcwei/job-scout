@@ -46,6 +46,9 @@
   <main class="board">
     <div id="status-line" class="status-line" role="status" aria-live="polite"></div>
     <ul id="joblist" class="joblist"></ul>
+    <div class="load-more-wrap">
+      <button id="load-more" class="load-more" hidden>Load more</button>
+    </div>
     <div id="empty" class="empty" hidden>
       <p class="empty-title">No jobs here</p>
       <p class="empty-body">Try another filter, or run <code>job-scout scrape</code> to fetch new listings.</p>
