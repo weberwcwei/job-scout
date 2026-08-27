@@ -14,6 +14,7 @@ import httpx
 
 from job_scout.models import ATSJob, ATSProvider, Site
 from job_scout.ats.base import ATSAdapter, normalize_employment_type, parse_ats_location
+from job_scout.util import html_to_text
 
 log = logging.getLogger("job_scout.ats.ashby")
 
@@ -68,7 +69,7 @@ class AshbyAdapter(ATSAdapter):
             location_text=str(location_text) if location_text else None,
             employment_type=employment_type,
             description_html=description_html,
-            description="",
+            description=html_to_text(description_html),
             posted_at=posted_at,
             updated_at=posted_at or datetime.now(),
             last_seen_at=posted_at or datetime.now(),

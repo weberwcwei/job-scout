@@ -8,6 +8,7 @@ role at an unknown company can still rank highly.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from job_scout.models import ATSJob
@@ -17,7 +18,12 @@ _AU_STATES = {"nsw", "vic", "qld", "wa", "sa", "tas", "act", "nt"}
 
 #: Seniority keywords -> points.
 _SENIORITY = {
-    "principal": 5, "staff": 5, "lead": 4, "senior": 3, "mid": 2, "junior": 1,
+    "principal": 5,
+    "staff": 5,
+    "lead": 4,
+    "senior": 3,
+    "mid": 2,
+    "junior": 1,
 }
 
 
@@ -51,9 +57,22 @@ def score_job(job: ATSJob, *, company_score: int = 0) -> tuple[int, dict]:
     breakdown["location"] = location
 
     # Technology/domain (0-15): keywords in description.
-    text = f"{job.title} {job.description}".lower()
+    description = job.description
+    if not description and job.description_html:
+        description = re.sub(r"<[^>]+>", " ", job.description_html)
+    text = f"{job.title} {description}".lower()
     tech = 0
-    for kw in ("python", "golang", "go", "rust", "typescript", "react", "aws", "gcp", "k8s"):
+    for kw in (
+        "python",
+        "golang",
+        "go",
+        "rust",
+        "typescript",
+        "react",
+        "aws",
+        "gcp",
+        "k8s",
+    ):
         if kw in text:
             tech += 3
     tech = min(15, tech)

@@ -55,6 +55,7 @@ function loadJobs(offset = 0, limit = PAGE_SIZE) {
   const params = new URLSearchParams();
   if (state.filter !== "all") params.set("status", state.filter);
   if (state.source) params.set("source", state.source);
+  if (state.q) params.set("q", state.q);
   params.set("sort", state.sort);
   params.set("limit", String(limit));
   params.set("offset", String(offset));
@@ -302,7 +303,9 @@ function escapeAttr(s) {
 
 searchEl.addEventListener("input", () => {
   state.q = searchEl.value.trim();
-  render(state.jobs);
+  loadPage(0).catch((err) => {
+    statusLineEl.textContent = `load failed: ${err.message}`;
+  });
 });
 
 sourceEl.addEventListener("change", () => {
