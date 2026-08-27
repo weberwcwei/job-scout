@@ -123,3 +123,31 @@ class TestScrapeZeroResultWarning:
 
         assert result.exit_code == 0
         assert "Warning" not in result.output
+
+
+class TestScrapeUnknownSite:
+    def test_unknown_site_fails_fast(self, tmp_path):
+        """Config sites that no longer have a scraper exit 1 with a clear message."""
+        cfg = AppConfig(
+            **{
+                **MINIMAL_RAW,
+                "search": {**MINIMAL_RAW["search"], "sites": ["google"]},
+            }
+        )
+
+        with patch("job_scout.cli._get_config", return_value=cfg):
+            result = runner.invoke(app, ["scrape"])
+
+        assert result.exit_code == 1
+        assert "Unknown site" in result.output
+        assert "google" in result.output
+
+    def test_site_flag_validated(self, tmp_path):
+        """--site flag with an unknown value is rejected before any scraping."""
+        cfg = AppConfig(**MINIMAL_RAW)
+
+        with patch("job_scout.cli._get_config", return_value=cfg):
+            result = runner.invoke(app, ["scrape", "--site", "ziprecruiter"])
+
+        assert result.exit_code == 1
+        assert "Unknown site" in result.output

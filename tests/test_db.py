@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 
 from job_scout.db import JobDB
@@ -89,6 +91,16 @@ class TestGetJobsSourceFilter:
         jobs = db.get_jobs(source="indeed")
         assert jobs == []
 
+    @pytest.mark.parametrize(
+        "source", ["google", "glassdoor", "ziprecruiter", "bayt"]
+    )
+    def test_reads_rows_from_retired_scrapers(self, db, source):
+        _, row_id = db.upsert_job(_make_job(f"legacy-{source}"))
+        db.conn.execute("UPDATE jobs SET source = ? WHERE id = ?", (source, row_id))
+        db.conn.commit()
+
+        assert db.get_job(row_id).source.value == source
+
 
 class TestGetJobsLimitNone:
     def test_returns_all_when_limit_none(self, db):
@@ -132,7 +144,7 @@ class TestGetStatsZeroResultRuns:
 
         # An error run (should NOT count as zero-result)
         run3 = ScrapeRun(
-            site=Site.GOOGLE,
+            site=Site.INDEED,
             search_term="python",
             location="Remote",
             started_at=datetime.now(),
@@ -515,3 +527,130 @@ class TestSearchTermStats:
         job = db.get_job(row_id)
         # First discovery's search_term is kept (upsert UPDATE doesn't touch search_term)
         assert job.search_term == "data science"
+
+
+class TestExpireOldJobs:
+    def _insert_aged(self, db, sid, status, age_days):
+        _, job_id = db.upsert_job(_make_job(sid, status=status))
+        db.conn.execute(
+            "UPDATE jobs SET date_scraped = ?, last_seen_at = ? WHERE id = ?",
+            (
+                (datetime.now() - timedelta(days=age_days)).isoformat(),
+                (datetime.now() - timedelta(days=age_days)).isoformat(),
+                job_id,
+            ),
+        )
+        db.conn.commit()
+        return job_id
+
+    def test_expires_old_new_and_filtered(self, db):
+        self._insert_aged(db, "old-new", "new", 40)
+        self._insert_aged(db, "old-filtered", "filtered", 40)
+        self._insert_aged(db, "recent-new", "new", 5)
+
+        assert db.expire_old_jobs(30) == 2
+        statuses = {j.status for j in db.get_jobs()}
+        assert statuses == {"new", "expired"}
+
+    def test_preserves_user_tracked_rows(self, db):
+        for status in ("applied", "interview", "offer", "rejected"):
+            self._insert_aged(db, f"x-{status}", status, 90)
+
+        assert db.expire_old_jobs(30) == 0
+        statuses = {j.status for j in db.get_jobs()}
+        assert statuses == {"applied", "interview", "offer", "rejected"}
+
+    def test_empty_db(self, db):
+        assert db.expire_old_jobs(30) == 0
+
+    def test_rescrape_refreshes_last_seen_and_reactivates_expired(self, db):
+        job_id = self._insert_aged(db, "seen-again", "new", 40)
+        assert db.expire_old_jobs(30) == 1
+
+        db.upsert_job(_make_job("seen-again", status="new", score=75))
+
+        job = db.get_job(job_id)
+        assert job.status == "new"
+        assert job.score == 75
+        assert db.expire_old_jobs(30) == 0
+
+    def test_content_match_reactivates_expired(self, db):
+        original = _make_job("expired-content", score=30)
+        original.description = "same rediscovered description " * 10
+        _, job_id = db.upsert_job(original)
+        old = (datetime.now() - timedelta(days=40)).isoformat()
+        db.conn.execute(
+            "UPDATE jobs SET last_seen_at = ? WHERE id = ?", (old, job_id)
+        )
+        db.conn.commit()
+        assert db.expire_old_jobs(30) == 1
+        rediscovered = _make_job("new-source-id", score=75)
+        rediscovered.description = original.description
+
+        db.upsert_job(rediscovered)
+
+        job = db.get_job(job_id)
+        assert job.status == "new"
+        assert job.score == 75
+
+
+class TestRejectDemotesScore:
+    def test_reject_zeroes_score_and_stashes_original(self, db):
+        _, row_id = db.upsert_job(_make_job("r1", score=85))
+        db.update_status(row_id, "rejected", "not a fit")
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.score == 0
+        assert job.score_breakdown.get("pre_reject_score") == 85
+
+    def test_other_statuses_keep_score(self, db):
+        _, row_id = db.upsert_job(_make_job("r2", score=70))
+        db.update_status(row_id, "applied")
+        job = db.get_job(row_id)
+        assert job.score == 70
+        assert "pre_reject_score" not in job.score_breakdown
+
+    def test_reject_on_malformed_breakdown_does_not_crash(self, db):
+        _, row_id = db.upsert_job(_make_job("r3", score=60))
+        db.conn.execute("UPDATE jobs SET score_breakdown = '' WHERE id = ?", (row_id,))
+        db.conn.commit()
+        db.update_status(row_id, "rejected")
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.score == 0
+
+    def test_rescrape_preserves_rejected_score_metadata(self, db):
+        _, row_id = db.upsert_job(_make_job("r4", score=85))
+        db.update_status(row_id, "rejected")
+
+        db.upsert_job(_make_job("r4", score=95))
+
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.score == 0
+        assert job.score_breakdown["pre_reject_score"] == 85
+
+    def test_content_match_preserves_rejected_score_metadata(self, db):
+        original = _make_job("r5", score=85)
+        original.description = "shared description " * 20
+        _, row_id = db.upsert_job(original)
+        db.update_status(row_id, "rejected")
+        duplicate = _make_job("r6", score=95)
+        duplicate.description = original.description
+
+        db.upsert_job(duplicate)
+
+        job = db.get_job(row_id)
+        assert job.status == "rejected"
+        assert job.score == 0
+        assert job.score_breakdown["pre_reject_score"] == 85
+
+    def test_repeated_rejection_preserves_original_score(self, db):
+        _, row_id = db.upsert_job(_make_job("r7", score=85))
+        db.update_status(row_id, "rejected")
+
+        db.update_status(row_id, "rejected")
+
+        job = db.get_job(row_id)
+        assert job.score == 0
+        assert job.score_breakdown["pre_reject_score"] == 85

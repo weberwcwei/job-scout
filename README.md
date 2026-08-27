@@ -14,40 +14,53 @@
 </p>
 
 <p align="center">
-  <sub>Scrapes <b>LinkedIn</b> · <b>Indeed</b> · <b>Google Jobs</b> · <b>Glassdoor</b> · <b>ZipRecruiter</b> · <b>Bayt</b></sub>
+  <sub>Scrapes <b>LinkedIn</b> · <b>Indeed</b> · <b>Jora</b> and polls <b>Greenhouse</b> · <b>Lever</b> · <b>Ashby</b> ATS boards directly</sub>
 </p>
 
 ---
 
+> **Fork notice** — This is a fork of [weberwcwei/job-scout](https://github.com/weberwcwei/job-scout) (MIT).
+> It adds an **ATS discovery subsystem**: instead of only scraping job boards, it discovers
+> companies, resolves their applicant-tracking systems, and polls those ATS boards directly
+> for structured job data. See [ATS_DISCOVERY.md](ATS_DISCOVERY.md) for the full design.
+
 ## Changelog
 
-**2026-04-12**
+**2026-08-26 (fork)**
+- **ATS discovery subsystem** — discover companies (VC portfolios, funding news, DuckDuckGo ATS search, seed list), resolve their ATS tenant, and poll Greenhouse/Lever/Ashby boards directly into normalised, deduplicated canonical records. New commands: `discover`, `poll`, `coverage`. New schedule plists: `discover` (daily) and `poll` (every 12h).
+- **`low_score` status** — jobs scoring below `scoring.low_score_threshold` are auto-filed out of `new` so the UI stays fast and only relevant jobs surface. Paginated UI list with "Load more".
+- **Live-verified adapters** — Greenhouse (Culture Amp), Lever (Deputy), Ashby (Airwallex/Xero/Linear) confirmed against real boards.
+
+**2026-04-12 (upstream)**
 - Telegram bot: natural-language job status queries via Gemini LLM, multi-profile support with `--config`, hardened prompt against injection
 - SMTP timeout to prevent indefinite hangs on email notifications
 
-**2026-04-09**
+**2026-04-09 (upstream)**
 - Content-based deduplication: catches identical job postings with different source IDs (Indeed key rotation). New `dedup` command to clean existing duplicates
 
-**2026-04-07**
+**2026-04-07 (upstream)**
 - Location normalization: auto-corrects scraped city/state/country data via model validator
 - Daily report is emailed with the report file attached when email notifications are enabled
 
-**2026-04-06**
+**2026-04-06 (upstream)**
 - Multi-config (`--config`), Slack/Discord webhooks, `report` and `export` commands, digest stats footer, multi-plist scheduler, zero-result warnings
 
-**Week of 2026-03-30**
+**Week of 2026-03-30 (upstream)**
 - `rescore` command, dealbreaker storage, config quality warnings, XDG config path
 
 ---
 
-job-scout scrapes 6 job boards every few hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram, Slack, Discord, or email. Free, no API keys, runs on your Mac.
+job-scout scrapes 3 job boards every few hours, scores each match 0–100 against your profile, and sends the best ones to your Telegram, Slack, Discord, or email. Free, no API keys, runs on your Mac.
+
+On top of that, this fork **discovers and polls ATS boards directly**, so you see roles that never appear on the big job boards.
 
 ### Why job-scout?
 
 - **You miss new posts** — Job boards bury good matches under promoted listings. job-scout checks every 6 hours so you see them first.
-- **You waste time scrolling** — Instead of checking 6 sites manually, get one alert with only jobs that match your skills.
+- **You waste time scrolling** — Instead of checking sites manually, get one alert with only jobs that match your skills.
 - **You can't compare across sites** — job-scout ranks every job on one 0–100 scale so the best match wins, regardless of where it was posted.
 - **You lose track of applications** — Every job gets an ID. Mark it applied, add notes, check your stats.
+- **Job boards miss ATS-only roles** — Many companies post only on their own careers page. The discovery subsystem finds those boards and polls them directly.
 
 ## What You'll Get
 
@@ -81,7 +94,7 @@ You need a Mac with Python 3.12+ ([download](https://www.python.org/downloads/))
 ### Step 1: Install
 
 ```bash
-git clone https://github.com/weberwcwei/job-scout.git
+git clone https://github.com/BlueDoraemon/job-scout.git
 cd job-scout
 chmod +x setup.sh
 ./setup.sh
@@ -168,9 +181,7 @@ STRICT FORMAT RULES (the app validates all of these — violations cause errors)
 11. search.sites MUST be exactly:
     - linkedin
     - indeed
-    - google
-    - glassdoor
-    - ziprecruiter
+    - jora
 12. search.results_per_site: 25
 13. search.hours_old: 72
 14. search.distance_miles: 50
@@ -231,10 +242,47 @@ Pick any channel — or use several at once.
 ```bash
 job-scout check                # validate your config
 job-scout scrape --dry-run     # test it — see results without saving
-job-scout schedule --install   # automate: scrape, digest, and daily report
+job-scout schedule --install   # automate: scrape, digest, report, discover, poll
 ```
 
 You're done! Jobs will start flowing to your phone.
+
+## ATS Discovery (this fork)
+
+The fork adds a discovery + polling pipeline that runs alongside the board scrapers:
+
+```bash
+job-scout discover             # find companies (VC portfolios, funding news, ATS search, seed list)
+job-scout poll                 # poll known ATS boards, normalise, score, persist
+job-scout poll --resolve       # discover + resolve company ATS before polling
+job-scout coverage             # registry health, polling stats, scoring component means
+```
+
+- **Discover** runs daily (default 08:15) and adds candidate companies to the registry with provenance (`blackbird`, `funding_news`, `ats_search`, `seed_list`).
+- **Poll** runs every 12 hours and fetches each resolved board's public JSON (Greenhouse, Lever, Ashby), normalises it into a shared schema, deduplicates into canonical records, and scores each job 0–100.
+- **Coverage** reports what the system is seeing so you can tune it.
+
+### Seeding known boards
+
+Bootstrap the registry deterministically with `discovery.seed_companies` in `config.yaml` — each entry is `Name|domain|ats|slug`:
+
+```yaml
+discovery:
+  enabled: true
+  seed_companies:
+    - "Culture Amp|cultureamp.com|greenhouse|cultureamp"
+    - "Deputy|deputy.com|lever|deputy"
+    - "Airwallex|airwallex.com|ashby|airwallex"
+```
+
+### How discovery works
+
+1. **VC portfolios** — scrapes portfolio pages (Blackbird etc.) for company names.
+2. **Funding news** — parses RSS feeds (Startup Daily, SmartCompany, TechCrunch AU) for "X raises $Y" headlines.
+3. **ATS search** — best-effort DuckDuckGo `site:` search over board domains (no paid API; degrades gracefully when rate-limited).
+4. **Seed list** — your manual bootstrap, never rate-limited.
+
+Each candidate is stored with *why* it was discovered. The company registry grows automatically.
 
 ## Daily Use
 
@@ -249,6 +297,7 @@ job-scout stats                # see your numbers
 job-scout digest               # send today's top matches now
 job-scout report               # generate and email a daily report
 job-scout export -o jobs.csv   # export jobs to CSV or JSON
+job-scout ui                   # open the local web UI (browse, filter, update)
 ```
 
 ## Multiple Searches
@@ -297,9 +346,7 @@ job-scout schedule --uninstall
 
 **Schedule not running** — Run `job-scout schedule --install` from the project directory.
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=weberwcwei/job-scout&type=Date)](https://star-history.com/#weberwcwei/job-scout&Date)
+**Discovery finds nothing** — Run `job-scout coverage`. If the registry is empty, add `discovery.seed_companies` entries for boards you know. The DuckDuckGo search source is best-effort and may be rate-limited.
 
 ## License
 
@@ -307,4 +354,6 @@ MIT
 
 ## Acknowledgments
 
-Inspired by [JobSpy](https://github.com/speedyapply/JobSpy) (MIT license).
+- Forked from [weberwcwei/job-scout](https://github.com/weberwcwei/job-scout) (MIT).
+- Inspired by [JobSpy](https://github.com/speedyapply/JobSpy) (MIT license).
+- ATS board APIs: [Greenhouse](https://developers.greenhouse.io/jobboard.html), [Lever](https://lever.co/developers/), [Ashby](https://www.ashbyhq.com/developers/).

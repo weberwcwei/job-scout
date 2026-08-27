@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>job-scout</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <!--
+  THESIS: a score-ranked job triage list that disappears into the task of
+  deciding what to apply to next; refuses scanner theatrics and novelty
+  interaction grammar.
+  OWN-WORLD: dark restrained surface, one accent for the active filter,
+  six-status colour vocabulary, system font stack, score badges in tabular
+  mono numerals, elevation via 1px border + soft shadow on raised rows.
+  STORY: every job ranked by score with status chips, search, source and sort
+  controls; one click changes a job's status and it re-ranks in place.
+  FIRST VIEWPORT: sticky top bar (brand + search/source/sort), status chip
+  row with live counts, then the score-ranked list; the list is the hero.
+  FORM: category-standard dark ATS list, played straight (canon); seed key
+  d87e91a9.
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the
+  finish review, the verdict, and DESIGN.md.
+  -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">job-scout</span>
+      <span class="brand-sub">local board</span>
+    </div>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Search title or company" autocomplete="off" aria-label="Search jobs">
+      <select id="source" aria-label="Filter by source">
+        <option value="">All sources</option>
+      </select>
+      <select id="sort" aria-label="Sort jobs">
+        <option value="score">Sort: score</option>
+        <option value="date">Sort: posted</option>
+        <option value="salary">Sort: salary</option>
+      </select>
+    </div>
+  </header>
+
+  <nav class="chips" id="chips" aria-label="Filter by status"></nav>
+
+  <main class="board">
+    <div id="status-line" class="status-line" role="status" aria-live="polite"></div>
+    <ul id="joblist" class="joblist"></ul>
+    <div class="load-more-wrap">
+      <button id="load-more" class="load-more" hidden>Load more</button>
+    </div>
+    <div id="empty" class="empty" hidden>
+      <p class="empty-title">No jobs here</p>
+      <p class="empty-body">Try another filter, or run <code>job-scout scrape</code> to fetch new listings.</p>
+    </div>
+  </main>
+
+  <dialog id="detail" class="detail">
+    <button class="detail-close" id="detail-close" aria-label="Close">&#10005;</button>
+    <div id="detail-body"></div>
+  </dialog>
+
+  <template id="row-template">
+    <li class="job">
+      <div class="job-score" aria-hidden="true"></div>
+      <div class="job-main">
+        <div class="job-head">
+          <span class="job-title"></span>
+          <span class="job-status"></span>
+        </div>
+        <div class="job-meta"></div>
+        <div class="job-notes" hidden></div>
+      </div>
+      <div class="job-actions">
+        <select class="status-select" aria-label="Change status"></select>
+      </div>
+    </li>
+  </template>
+
+  <script src="/app.js"></script>
+</body>
+</html>

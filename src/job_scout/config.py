@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, PrivateAttr, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 
 class ConfigDiagnostic(BaseModel):
@@ -55,22 +55,26 @@ class ProfileConfig(BaseModel):
 class SearchConfig(BaseModel):
     terms: list[str]
     locations: list[str]
-    sites: list[str] = ["linkedin", "indeed", "google", "glassdoor", "ziprecruiter"]
+    sites: list[str] = ["linkedin", "indeed", "jora"]
     results_per_site: int = 25
     hours_old: int = 72
     distance_miles: int = 50
+    country: str = "AU"
+    expire_days: int = 30
 
 
 class ScrapingConfig(BaseModel):
-    delay_min_seconds: float = 3.0
-    delay_max_seconds: float = 8.0
+    delay_min_seconds: float = 0.5
+    delay_max_seconds: float = 2.0
     request_timeout: int = 15
     max_retries: int = 2
     max_pages: int = 3
     fetch_descriptions: bool = True
     proxies: list[str] = []
     use_tls_fingerprinting: bool = False
-    max_workers: int = 3
+    max_workers: int = 6
+    min_request_interval_seconds: float = 1.0
+    debug: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -85,6 +89,7 @@ class ScrapingConfig(BaseModel):
 class ScoringConfig(BaseModel):
     min_alert_score: int = 55
     min_display_score: int = 20
+    low_score_threshold: int = 20
     alert_states: list[str] = []
 
     @model_validator(mode="after")
@@ -160,6 +165,34 @@ class ScheduleConfig(BaseModel):
     digest_minute: int = 0
     report_hour: int = 8
     report_minute: int = 50
+    discover_hour: int = 8
+    discover_minute: int = 15
+    poll_interval_hours: int = 12
+
+
+class DiscoveryConfig(BaseModel):
+    """ATS discovery subsystem settings (see ATS_DISCOVERY.md)."""
+
+    enabled: bool = False
+    vc_portfolios: list[str] = Field(
+        default_factory=lambda: [
+            "blackbird",
+            "airtree",
+            "squarepeg",
+            "mainsequence",
+            "startmate",
+        ]
+    )
+    funding_sources: list[str] = Field(
+        default_factory=lambda: [
+            "startupdaily",
+            "smartcompany",
+            "techcrunch_au",
+        ]
+    )
+    ats_search_enabled: bool = True
+    seed_companies: list[str] = Field(default_factory=list)
+    missing_crawls_before_close: int = 3
 
 
 class AppConfig(BaseModel):
@@ -170,6 +203,7 @@ class AppConfig(BaseModel):
     notifications: NotificationsConfig = NotificationsConfig()
     schedule: ScheduleConfig = ScheduleConfig()
     bot: BotConfig = BotConfig()
+    discovery: DiscoveryConfig = DiscoveryConfig()
     db_path: Path | None = None
     report_dir: Path = Path.home() / ".local" / "share" / "job-scout" / "reports"
     config_name: str | None = None
@@ -272,6 +306,23 @@ def validate_quality(cfg: AppConfig) -> list[ConfigDiagnostic]:
                         message=f"Invalid regex in {field_name}: {pattern} — {e}",
                     )
                 )
+
+    # --- Errors: unknown sites ---
+    from job_scout.scrapers import get_supported_sites
+
+    valid_sites = get_supported_sites()
+    for site in cfg.search.sites:
+        if site not in valid_sites:
+            diags.append(
+                ConfigDiagnostic(
+                    level="error",
+                    field="search.sites",
+                    message=(
+                        f"Unknown site {site!r} — supported sites: "
+                        f"{', '.join(sorted(valid_sites))}"
+                    ),
+                )
+            )
 
     # --- Warnings: placeholder values ---
     if not cfg.profile.name or cfg.profile.name == "Your Name":

@@ -34,7 +34,7 @@ class TestScrapingConfigDefaults:
 
     def test_max_workers_default(self):
         cfg = ScrapingConfig()
-        assert cfg.max_workers == 3
+        assert cfg.max_workers == 6
 
     def test_use_tls_fingerprinting_default(self):
         cfg = ScrapingConfig()
@@ -92,9 +92,12 @@ class TestScoringConfigAlertStates:
 class TestSearchConfigDefaults:
     def test_sites_includes_new_scrapers(self):
         cfg = SearchConfig(terms=["eng"], locations=["US"])
-        assert "glassdoor" in cfg.sites
-        assert "ziprecruiter" in cfg.sites
-        assert "bayt" not in cfg.sites  # opt-in only
+        assert "linkedin" in cfg.sites
+        assert "indeed" in cfg.sites
+
+    def test_country_defaults_to_australia(self):
+        cfg = SearchConfig(terms=["eng"], locations=["Australia"])
+        assert cfg.country == "AU"
 
 
 class TestBackwardCompat:
@@ -106,7 +109,7 @@ class TestBackwardCompat:
         cfg = AppConfig(**raw)
         assert cfg.scraping.max_pages == 3
         assert cfg.scraping.proxies == []
-        assert cfg.scraping.max_workers == 3
+        assert cfg.scraping.max_workers == 6
         assert cfg.scraping.use_tls_fingerprinting is False
 
     def test_old_proxy_config_loads(self):

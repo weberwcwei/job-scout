@@ -12,7 +12,7 @@ from job_scout.config import LOG_DIR, ScheduleConfig
 LABEL_PREFIX = "com.user.job-scout"
 LEGACY_LABEL = "com.user.job-scout"  # old single-plist label
 PLIST_DIR = Path.home() / "Library" / "LaunchAgents"
-TASKS = ("scrape", "digest", "report")
+TASKS = ("scrape", "digest", "report", "discover", "poll")
 BOT_LABEL = f"{LABEL_PREFIX}.bot"
 
 # Keep PLIST_LABELS for backwards compat with tests referencing it
@@ -99,6 +99,25 @@ def generate_plists(
                 "Minute": schedule.report_minute,
             },
             log_prefix="report",
+            log_dir=log_dir,
+        ),
+        labels["discover"]: _generate_plist(
+            label=labels["discover"],
+            command_args=base_args + ["discover"],
+            schedule_key="StartCalendarInterval",
+            schedule_value={
+                "Hour": schedule.discover_hour,
+                "Minute": schedule.discover_minute,
+            },
+            log_prefix="discover",
+            log_dir=log_dir,
+        ),
+        labels["poll"]: _generate_plist(
+            label=labels["poll"],
+            command_args=base_args + ["poll"],
+            schedule_key="StartInterval",
+            schedule_value=schedule.poll_interval_hours * 3600,
+            log_prefix="poll",
             log_dir=log_dir,
         ),
     }
@@ -204,11 +223,11 @@ def uninstall(profile_name: str = "default") -> None:
         uninstall_bot()
 
 
-def status(profile_name: str = "default") -> dict[str, dict]:
+def status(profile_name: str = "default") -> dict[str, object]:
     """Return per-plist status for a profile."""
     labels = plist_labels(profile_name)
     log_dir = LOG_DIR / profile_name if profile_name != "default" else LOG_DIR
-    result = {}
+    result: dict[str, object] = {}
     for name, label in labels.items():
         path = PLIST_DIR / f"{label}.plist"
         installed = path.exists()

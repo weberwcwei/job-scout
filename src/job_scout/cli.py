@@ -31,7 +31,7 @@ from job_scout.export import write_csv, write_json
 from job_scout.models import Location, ScrapeParams, ScrapeRun, Site
 from job_scout.notify import Notifier
 from job_scout.scorer import JobScorer
-from job_scout.scrapers import get_scraper
+from job_scout.scrapers import DescriptionCache, get_scraper, get_supported_sites
 
 app = typer.Typer(name="job-scout", help="Lightweight job scraping and alerting.")
 console = Console()
@@ -76,15 +76,19 @@ def _filter_alert_jobs(jobs: list, cfg) -> list:
 def scrape(
     site: str = typer.Option(
         None,
-        help="Scrape specific site: linkedin, indeed, google, glassdoor, ziprecruiter, bayt",
+        help=f"Scrape specific site: {', '.join(sorted(s.value for s in Site))}",
     ),
     term: str = typer.Option(None, help="Override search term"),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Scrape and score but don't persist"
     ),
+    debug: bool = typer.Option(
+        False, "--debug", help="Log response snippets on parse failures"
+    ),
 ):
     """Run scrapers, score jobs, store results, and notify on new matches."""
     cfg = _get_config()
+    cfg.scraping.debug = debug
     db = _get_db(cfg) if not dry_run else None
     scorer = JobScorer(cfg.profile)
     paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
@@ -94,10 +98,20 @@ def scrape(
     terms = [term] if term else cfg.search.terms
     locations = cfg.search.locations
 
+    valid_sites = get_supported_sites()
+    unknown = [s for s in sites if s not in valid_sites]
+    if unknown:
+        console.print(
+            f"[red]Unknown site(s): {', '.join(unknown)}. "
+            f"Supported sites: {', '.join(sorted(valid_sites))}[/red]"
+        )
+        raise typer.Exit(1)
+
     new_high_score: list = []
     total_found = 0
     total_new = 0
     total_filtered = 0
+    total_low_score = 0
 
     # Build task list for concurrent execution
     tasks = [
@@ -106,6 +120,9 @@ def scrape(
         for search_term in terms
         for loc in locations
     ]
+    # Run-scoped description cache shared by all workers: the same job often
+    # matches several search terms, so its description should be fetched once.
+    description_cache = DescriptionCache()
 
     def _run_one(task):
         s_name, s_term, s_loc = task
@@ -115,9 +132,11 @@ def scrape(
             results_wanted=cfg.search.results_per_site,
             hours_old=cfg.search.hours_old,
             distance_miles=cfg.search.distance_miles,
+            country=cfg.search.country,
         )
         try:
             scraper = get_scraper(s_name, cfg.scraping)
+            scraper.description_cache = description_cache
             jobs = scraper.scrape(params)
         except Exception as e:
             return s_name, s_term, s_loc, [], str(e)
@@ -156,9 +175,8 @@ def scrape(
                     f'[dim]Scraped {site_name}: "{search_term}" in {location} — {len(jobs)} jobs[/dim]'
                 )
             else:
-                console.print(
-                    f'[yellow]Warning: {site_name} returned 0 jobs for "{search_term}" in {location}[/yellow]'
-                )
+                msg = f'[yellow]Warning: {site_name} returned 0 jobs for "{search_term}" in {location}[/yellow]'
+                console.print(msg)
 
             page_new = 0
             for job in jobs:
@@ -173,6 +191,9 @@ def scrape(
                             f"  [dim]{job.score}[/dim] | {job.company}: {job.title} | [red]dealbreaker[/red]"
                         )
                     continue
+                if job.score < cfg.scoring.low_score_threshold:
+                    job.status = "low_score"
+                    total_low_score += 1
 
                 total_found += 1
 
@@ -193,9 +214,18 @@ def scrape(
             if db and run_id:
                 db.finish_run(run_id, len(jobs), page_new)
 
+    expired = db.expire_old_jobs(cfg.search.expire_days) if db else 0
+    if expired:
+        console.print(
+            f"[dim]{expired} job(s) not seen for {cfg.search.expire_days} days "
+            f"expired.[/dim]"
+        )
+
     parts = [f"Found {total_found} jobs", f"{total_new} new"]
     if total_filtered:
         parts.append(f"{total_filtered} filtered by dealbreakers")
+    if total_low_score:
+        parts.append(f"{total_low_score} low score")
     console.print(f"\n[bold]Done.[/bold] {', '.join(parts)}.")
 
     if new_high_score and not dry_run:
@@ -209,10 +239,110 @@ def scrape(
         db.close()
 
 
+@app.command()
+def discover(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be discovered without persisting"
+    ),
+):
+    """Discover companies from VC portfolios, funding news, and ATS search."""
+    from job_scout.discovery import run_discovery
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    try:
+        summary = run_discovery(cfg.discovery, db, dry_run=dry_run)
+        prefix = "[DRY RUN] " if dry_run else ""
+        console.print(
+            f"{prefix}Discovery: {summary.get('candidates', 0)} candidates, "
+            f"{summary.get('added', 0)} added, {summary.get('updated', 0)} updated."
+        )
+        if not cfg.discovery.enabled:
+            console.print(
+                "[yellow]Set discovery.enabled: true in config to run discovery.[/yellow]"
+            )
+    finally:
+        db.close()
+
+
+@app.command()
+def poll(
+    resolve: bool = typer.Option(
+        False, "--resolve", help="Run discovery + company resolution before polling"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be polled without persisting"
+    ),
+):
+    """Poll known ATS boards, normalise, score, and persist canonical jobs."""
+    from job_scout.poller import run_poll, run_resolve
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    try:
+        if resolve:
+            resolved = run_resolve(cfg, db, dry_run=dry_run)
+            console.print(
+                f"Resolved {resolved['resolved']} companies, "
+                f"{resolved['unresolved']} unresolved."
+            )
+        summary = run_poll(cfg, db, dry_run=dry_run)
+        prefix = "[DRY RUN] " if dry_run else ""
+        console.print(
+            f"{prefix}Polled {summary['companies']} companies, {summary['jobs']} jobs, "
+            f"{summary['new_source']} new source records, "
+            f"{summary['new_canonical']} new canonical records."
+        )
+        if summary["closed_canonical"]:
+            console.print(
+                f"  {summary['closed_canonical']} canonical jobs closed "
+                f"(missing after {cfg.discovery.missing_crawls_before_close} crawls)."
+            )
+    finally:
+        db.close()
+
+
+@app.command()
+def coverage(
+    days: int = typer.Option(14, help="Staleness window in days"),
+):
+    """Show ATS registry health, polling stats, and scoring component means."""
+    from job_scout.coverage import coverage_report
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    try:
+        report = coverage_report(db, days=days)
+        reg = report["registry"]
+        console.print(
+            f"Registry: {reg['total']} companies, {reg['resolved']} resolved, "
+            f"{reg['pollable']} pollable"
+        )
+        prov = ", ".join(f"{k}={v}" for k, v in reg["by_provider"].items())
+        console.print(f"  by provider: {prov}")
+        poll = report["poll"]
+        console.print(
+            f"Polling: {poll['companies_polled']} companies, "
+            f"{poll['ats_open_jobs']} open / {poll['ats_closed_jobs']} closed source jobs, "
+            f"{poll['canonical_open']} open / {poll['canonical_closed']} closed canonical"
+        )
+        if poll["stale_companies"]:
+            console.print(
+                f"  [yellow]{poll['stale_companies']} companies not verified in "
+                f"{days} days[/yellow]"
+            )
+        console.print("Score means (open canonical):")
+        for row in report["score_means"]:
+            value = row["mean"] if row["mean"] is not None else "—"
+            console.print(f"  {row['component']}: {value}")
+    finally:
+        db.close()
+
+
 @app.command("list")
 def list_jobs(
     status: str = typer.Option(
-        "new", help="Filter by status: new, applied, rejected, filtered, all"
+        "new", help="Filter by status: new, applied, rejected, filtered, low_score, expired, all"
     ),
     min_score: int = typer.Option(None, "--min-score", help="Minimum score filter"),
     company: str = typer.Option(None, help="Filter by company name"),
@@ -275,7 +405,7 @@ def export(
         help="Output format: csv or json (default: inferred from extension, falls back to csv)",
     ),
     status: str = typer.Option(
-        "all", help="Filter by status: new, applied, rejected, filtered, all"
+        "all", help="Filter by status: new, applied, rejected, filtered, low_score, expired, all"
     ),
     min_score: int = typer.Option(None, "--min-score", help="Minimum score filter"),
     company: str = typer.Option(None, help="Company name substring filter"),
@@ -414,12 +544,53 @@ def mark_applied(
 
 @app.command()
 def reject(
-    job_id: int = typer.Argument(..., help="Job ID"),
+    job_id: int | None = typer.Argument(
+        None, help="Job ID (omit when using --company)"
+    ),
+    company: str = typer.Option(None, "--company", help="Reject all jobs from this company (substring match)"),
     notes: str = typer.Option("", help="Rejection reason"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be rejected without changing anything"
+    ),
 ):
-    """Mark a job as rejected."""
+    """Mark a job (or all jobs from a company) as rejected."""
     cfg = _get_config()
     db = _get_db(cfg)
+
+    if (job_id is None) == (company is None):
+        console.print("[red]Provide exactly one of JOB_ID or --company.[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    if company:
+        candidates = db.get_jobs(company=company, limit=None)
+        targets = [
+            j for j in candidates if j.status in ("new", "filtered")
+        ]  # never touch user-tracked rows
+        if not targets:
+            console.print(
+                f"[yellow]No new/filtered jobs match company {company!r}.[/yellow]"
+            )
+            db.close()
+            return
+        for job in targets:
+            if dry_run:
+                console.print(
+                    f"  [dim]would reject #{job.id} ({job.company}: {job.title})[/dim]"
+                )
+            else:
+                db.update_status(job.id, "rejected", notes)
+                console.print(
+                    f"  [dim]rejected #{job.id} ({job.company}: {job.title})[/dim]"
+                )
+        console.print(
+            f"[bold]{'Would reject' if dry_run else 'Rejected'} {len(targets)} job(s) "
+            f"matching company {company!r}.[/bold]"
+        )
+        db.close()
+        return
+
+    assert job_id is not None  # exactly-one-of validated above
     job = db.get_job(job_id)
     if not job:
         console.print(f"[red]Job #{job_id} not found.[/red]")
@@ -489,6 +660,31 @@ def bot(
 
     tg_bot = TelegramBot(config_dir=config_dir, config_override=_config_override)
     tg_bot.run()
+
+
+@app.command()
+def ui(
+    host: Annotated[
+        str, typer.Option("--host", help="Interface to bind (default: localhost only)")
+    ] = "127.0.0.1",
+    port: Annotated[
+        int, typer.Option("--port", help="Port to serve on; next free port used if taken")
+    ] = 8765,
+    open_browser: Annotated[
+        bool, typer.Option("--open/--no-open", help="Open the browser automatically")
+    ] = True,
+):
+    """Serve the local web UI for browsing and updating jobs.
+
+    Reads the same SQLite DB the CLI writes. Status changes made here use the
+    same update path as the CLI/bot. Press Ctrl-C to stop.
+    """
+    from job_scout.ui import serve
+
+    cfg = _get_config()
+    db = _get_db(cfg)
+    db.close()
+    serve(db.db_path, host=host, port=port, open_browser=open_browser)
 
 
 @app.command()
@@ -586,6 +782,10 @@ def schedule(
         console.print(
             f"Report: daily at {cfg.schedule.report_hour:02d}:{cfg.schedule.report_minute:02d}"
         )
+        console.print(
+            f"Discover: daily at {cfg.schedule.discover_hour:02d}:{cfg.schedule.discover_minute:02d}"
+        )
+        console.print(f"Poll: every {cfg.schedule.poll_interval_hours} hours")
     elif uninstall_flag:
         cfg = _get_config()
         data_paths = resolve_data_paths(cfg._config_path or resolve_config_path(), cfg)
@@ -866,7 +1066,7 @@ def dedup(
 
 @app.command()
 def rescore(
-    status: str = typer.Option(None, help="Filter by status: new, applied, rejected"),
+    status: str = typer.Option(None, help="Filter by status (rejected/expired are never rescored)"),
     site: str = typer.Option(None, "--site", help="Filter by source site"),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Show changes without persisting"
@@ -879,7 +1079,11 @@ def rescore(
     log_dir = data_paths.logs
     scorer = JobScorer(cfg.profile)
 
-    jobs = db.get_jobs(status=status, source=site, limit=None)
+    jobs = [
+        j
+        for j in db.get_jobs(status=status, source=site, limit=None)
+        if j.status not in ("rejected", "expired")  # terminal states keep their demotion
+    ]
     total = len(jobs)
 
     updates: list[tuple[int, int, dict]] = []
@@ -891,10 +1095,16 @@ def rescore(
             updates.append((job.id, new_score, breakdown))
         # Track dealbreaker status transitions
         is_dealbreaker = breakdown.get("dealbreaker", False)
-        if is_dealbreaker and job.status == "new":
+        if is_dealbreaker and job.status in ("new", "low_score"):
             status_updates.append((job.id, "filtered"))
         elif not is_dealbreaker and job.status == "filtered":
             status_updates.append((job.id, "new"))
+        elif not is_dealbreaker:
+            # Auto-file low-scoring jobs so they don't clutter the "new" view.
+            if job.status == "new" and new_score < cfg.scoring.low_score_threshold:
+                status_updates.append((job.id, "low_score"))
+            elif job.status == "low_score" and new_score >= cfg.scoring.low_score_threshold:
+                status_updates.append((job.id, "new"))
 
     if not updates and not status_updates:
         console.print(f"Rescored {total} jobs — no changes.")

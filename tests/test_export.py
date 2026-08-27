@@ -154,14 +154,14 @@ class TestExportCLI:
         db = JobDB(db_path)
         jobs = [
             _make_job(
-                id=None,
+                id=1,
                 score=80,
                 company="Alpha",
                 source=Site.LINKEDIN,
                 date_posted=date(2026, 4, 5),
             ),
             _make_job(
-                id=None,
+                id=2,
                 score=50,
                 company="Beta",
                 source=Site.INDEED,
@@ -169,10 +169,10 @@ class TestExportCLI:
                 date_posted=date(2026, 3, 20),
             ),
             _make_job(
-                id=None,
+                id=3,
                 score=30,
                 company="Gamma",
-                source=Site.GOOGLE,
+                source=Site.INDEED,
                 status="filtered",
                 date_posted=None,
             ),
@@ -263,7 +263,7 @@ class TestExportCLI:
             app, ["export", "--output", str(out), "--source", "indeed"]
         )
         assert result.exit_code == 0
-        assert "Exported 1 jobs" in result.output
+        assert "Exported 2 jobs" in result.output
 
     def test_export_days_filter(self, populated_db: Path, monkeypatch):
         from job_scout.cli import app

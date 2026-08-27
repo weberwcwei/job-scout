@@ -1,0 +1,180 @@
+# job-scout — graduate / associate / junior / mid-level roles
+# Focus: Sydney & Remote (Australia)
+profile:
+  name: ""                    # REQUIRED — your name
+  target_title: ""            # REQUIRED — e.g. "Graduate Software Engineer"
+
+  keywords:
+    critical:                 # +5 pts each — your strongest skills
+      - "python"
+      - "javascript"
+    strong:                   # +3 pts each
+      - "react"
+      - "typescript"
+      - "java"
+      - "aws"
+      - "git"
+    moderate:                 # +1.5 pts each
+      - "docker"
+      - "sql"
+      - "rest"
+      - "agile"
+      - "linux"
+      - "node.js"
+      - "html"
+      - "css"
+    weak:                     # +1 pt each
+      - "api"
+      - "testing"
+      - "ci/cd"
+      - "scrum"
+      - "github"
+      - "vscode"
+      - "postgresql"
+      - "mongodb"
+
+  target_companies:
+    tier1:                    # +15 pts — dream companies
+      - "Canva"
+      - "Atlassian"
+      - "Google"
+      - "Microsoft"
+      - "Amazon"
+    tier2:                    # +10 pts — great companies
+      - "SafetyCulture"
+      - "Culture Amp"
+      - "Zip Co"
+      - "Afterpay"
+      - "WiseTech"
+      - "Xero"
+      - "REA Group"
+      - "Domain"
+    tier3:                    # +6 pts — good companies
+      - "Tyro"
+      - "Macquarie"
+      - "Commonwealth Bank"
+      - "Westpac"
+      - "Immutable"
+      - "Rokt"
+      - "Pet Circle"
+      - "Airtasker"
+      - "Deputy"
+      - "Klarismo"
+
+  dealbreakers:
+    title_patterns:           # skip jobs with these in the title
+      - "(?i)\\bsenior\\b"
+      - "(?i)\\blead\\b"
+      - "(?i)\\bprincipal\\b"
+      - "(?i)\\bstaff\\b"
+      - "(?i)\\bdirector\\b"
+      - "(?i)\\bhead of\\b"
+      - "(?i)\\bmanager\\b"
+      - "(?i)\\bvp\\b"
+      - "(?i)\\barchitect\\b"
+      - "(?i)\\b5\\+\\s*years?\\b"
+      - "(?i)\\b7\\+\\s*years?\\b"
+      - "(?i)\\b8\\+\\s*years?\\b"
+      - "(?i)\\b10\\+\\s*years?\\b"
+    company_patterns: []      # companies to always skip
+    description_patterns:     # description keywords that disqualify a job
+      - "(?i)security clearance"
+
+  target_levels:
+    - "Graduate"
+    - "Associate"
+    - "Junior"
+    - "Entry Level"
+    - "Mid Level"
+    - "Mid-Level"
+
+  title_signals:              # bonus points when job title contains these phrases
+    - pattern: "graduate"
+      points: 15
+    - pattern: "grad"
+      points: 15
+    - pattern: "junior"
+      points: 12
+    - pattern: "associate"
+      points: 10
+    - pattern: "entry level"
+      points: 10
+    - pattern: "entry-level"
+      points: 10
+    - pattern: "software engineer"
+      points: 8
+    - pattern: "backend"
+      points: 6
+    - pattern: "frontend"
+      points: 6
+    - pattern: "full stack"
+      points: 6
+    - pattern: "full-stack"
+      points: 6
+
+search:
+  terms:
+    - "graduate software engineer"
+    - "junior software engineer"
+    - "associate software engineer"
+    - "software engineer"
+    - "backend engineer"
+    - "frontend engineer"
+    - "full stack engineer"
+    - "full stack developer"
+    - "data engineer"
+    - "devops engineer"
+    - "platform engineer"
+  locations:
+    - "Sydney, Australia"
+    - "Remote"
+  sites:
+    - linkedin
+    - indeed
+  results_per_site: 25
+  hours_old: 72
+  distance_miles: 50
+  country: "AU"
+
+scraping:
+  delay_min_seconds: 3.0
+  delay_max_seconds: 8.0
+  request_timeout: 15
+  max_retries: 2
+  max_pages: 3
+  fetch_descriptions: true
+  proxies: []
+  use_tls_fingerprinting: false
+  max_workers: 3
+
+scoring:
+  min_alert_score: 35
+  min_display_score: 15
+  alert_states: []
+
+notifications:
+  macos:
+    enabled: true
+    sound: "Ping"
+  email:
+    enabled: false
+    smtp_host: smtp.gmail.com
+    smtp_port: 587
+    username: ""
+    app_password: ""
+    to_address: ""
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+  slack:
+    enabled: false
+    webhook_url: ""
+  discord:
+    enabled: false
+    webhook_url: ""
+
+schedule:
+  interval_hours: 6
+  start_hour: 8
+  end_hour: 23

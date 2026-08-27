@@ -46,35 +46,36 @@ search:
     - "software engineer"         # job titles to search for — add as many as you like
     - "backend engineer"
   locations:
-    - "United States"             # search location(s)
+    - "Australia"                 # search location(s)
   sites:
-    - linkedin
-    - indeed
-    - google
-    - glassdoor
-    - ziprecruiter
-    # - bayt                        # uncomment for international (MENA) jobs
+    - linkedin                     # ✅ works without TLS
+    - indeed                       # ✅ works without TLS (uses hardcoded API key)
+    - jora                         # ✅ AU job board (server-rendered HTML)
   results_per_site: 25            # jobs to fetch per site per search term
   hours_old: 72                   # only include jobs posted in the last N hours
   distance_miles: 50
+  country: AU                     # country code for Indeed API (e.g. US, GB, CA); must match your locations
+  expire_days: 30                 # expire new/filtered jobs not seen for this many days
 
 scraping:
-  delay_min_seconds: 3.0          # wait at least this long between requests (be polite)
-  delay_max_seconds: 8.0
+  delay_min_seconds: 0.5          # wait at least this long between requests (be polite)
+  delay_max_seconds: 2.0
   request_timeout: 15
   max_retries: 2
   max_pages: 3                      # max pages to fetch per site (higher = more results, slower)
   fetch_descriptions: true
   proxies: []                       # round-robin proxy rotation: ["http://user:pass@host:port"]
-  use_tls_fingerprinting: false     # browser-like TLS fingerprints (pip install job-scout[tls])
-  max_workers: 3                    # concurrent scraper threads
+  use_tls_fingerprinting: true      # browser-like TLS fingerprints (pip install job-scout[tls]) — required for Jora full descriptions
+  max_workers: 6                    # concurrent scraper threads
+  min_request_interval_seconds: 1.0 # min gap between requests to the same host, across all workers (prevents 429 bursts)
 
 scoring:
   min_alert_score: 45             # send email alert when a job scores at or above this
   min_display_score: 20           # show jobs in CLI list at or above this score
+  low_score_threshold: 20         # jobs scoring below this are auto-filed as 'low_score' (not new)
   alert_states:                   # only alert for jobs in these states (empty = all states)
-    - "CA"
-    - "California"
+    - "NSW"
+    - "Victoria"
 
 notifications:
   macos:
@@ -102,6 +103,22 @@ schedule:
   interval_hours: 6               # run scraper every N hours
   start_hour: 8                   # don't run before this hour (local time)
   end_hour: 23                    # don't run after this hour (local time)
+
+discovery:                        # ATS discovery subsystem (see ATS_DISCOVERY.md)
+  enabled: false                  # master switch for `job-scout discover` / `poll`
+  vc_portfolios:                  # VC portfolio pages to scrape for companies
+    - blackbird
+    - airtree
+    - squarepeg
+    - mainsequence
+    - startmate
+  funding_sources:                # funding-news feeds (VC pages + RSS)
+    - startupdaily
+    - smartcompany
+    - techcrunch_au
+  ats_search_enabled: true        # DuckDuckGo site: search over ATS domains (best-effort)
+  seed_companies: []              # bootstrap list of known ATS boards
+  missing_crawls_before_close: 3  # consecutive missing crawls before a job is closed
 
 # config_name: my-search                 # override profile name (default: derived from filename)
 # db_path: /path/to/custom/job-scout.db  # override default DB location

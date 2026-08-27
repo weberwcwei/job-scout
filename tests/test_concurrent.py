@@ -50,7 +50,9 @@ class TestConcurrentExecution:
         """3 scrapers each sleeping 0.1s should finish in ~0.1s with 3 workers, not 0.3s."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        cfg = ScrapingConfig(delay_min_seconds=0, delay_max_seconds=0)
+        cfg = ScrapingConfig(
+            delay_min_seconds=0, delay_max_seconds=0, min_request_interval_seconds=0
+        )
 
         def worker(i):
             scraper = SlowScraper(cfg, delay=0.1)
@@ -71,7 +73,9 @@ class TestConcurrentExecution:
         """One failing scraper should not prevent others from completing."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        cfg = ScrapingConfig(delay_min_seconds=0, delay_max_seconds=0)
+        cfg = ScrapingConfig(
+            delay_min_seconds=0, delay_max_seconds=0, min_request_interval_seconds=0
+        )
         params = ScrapeParams(search_term="test", location="US", results_wanted=5)
 
         def run_scraper(scraper):
@@ -84,7 +88,7 @@ class TestConcurrentExecution:
         scrapers = [
             SlowScraper(cfg, delay=0, jobs=[_make_job(Site.LINKEDIN, "1")]),
             ErrorScraper(cfg),
-            SlowScraper(cfg, delay=0, jobs=[_make_job(Site.GOOGLE, "2")]),
+            SlowScraper(cfg, delay=0, jobs=[_make_job(Site.INDEED, "2")]),
         ]
 
         with ThreadPoolExecutor(max_workers=3) as pool:

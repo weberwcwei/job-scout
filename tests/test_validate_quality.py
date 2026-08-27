@@ -360,3 +360,18 @@ class TestCleanConfig:
         cfg = _cfg()
         diags = validate_quality(cfg)
         assert diags == []
+
+
+class TestUnknownSites:
+    def test_unknown_site_is_error(self):
+        cfg = _cfg(**{"search.sites": ["linkedin", "google"]})
+        diags = validate_quality(cfg)
+        assert any(
+            d.field == "search.sites" and d.level == "error" and "google" in d.message
+            for d in diags
+        )
+
+    def test_known_sites_no_error(self):
+        cfg = _cfg(**{"search.sites": ["linkedin", "indeed"]})
+        diags = validate_quality(cfg)
+        assert not any(d.field == "search.sites" and d.level == "error" for d in diags)

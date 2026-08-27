@@ -8,6 +8,10 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from job_scout.models import (
+    ATSJob,
+    ATSProvider,
+    CanonicalJob,
+    Company,
     Compensation,
     CompInterval,
     Job,
@@ -39,6 +43,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     comp_interval   TEXT,
     date_posted     TEXT,
     date_scraped    TEXT NOT NULL,
+    last_seen_at    TEXT NOT NULL,
     score           INTEGER DEFAULT 0,
     score_breakdown TEXT DEFAULT '{}',
     status          TEXT DEFAULT 'new',
@@ -71,6 +76,98 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_started ON scrape_runs(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS companies (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL UNIQUE,
+    domain          TEXT,
+    careers_url     TEXT,
+    ats             TEXT DEFAULT 'unknown',
+    ats_slug        TEXT,
+    discovered_from TEXT DEFAULT '[]',
+    last_verified_at TEXT,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_companies_ats ON companies(ats);
+CREATE INDEX IF NOT EXISTS idx_companies_slug ON companies(ats_slug);
+
+CREATE TABLE IF NOT EXISTS ats_jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedup_key       TEXT UNIQUE NOT NULL,
+    source          TEXT NOT NULL,
+    source_id       TEXT NOT NULL,
+    company_id      INTEGER,
+    company         TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    apply_url       TEXT,
+    location_text   TEXT,
+    city            TEXT,
+    state           TEXT,
+    country         TEXT,
+    is_remote       INTEGER DEFAULT 0,
+    hybrid          INTEGER DEFAULT 0,
+    employment_type TEXT,
+    description_html TEXT DEFAULT '',
+    description     TEXT DEFAULT '',
+    salary_min      REAL,
+    salary_max      REAL,
+    currency        TEXT DEFAULT 'AUD',
+    posted_at       TEXT,
+    first_seen_at   TEXT NOT NULL,
+    last_seen_at    TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    closed_at       TEXT,
+    status          TEXT DEFAULT 'open',
+    repost          INTEGER DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (company_id) REFERENCES companies(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ats_jobs_source ON ats_jobs(source);
+CREATE INDEX IF NOT EXISTS idx_ats_jobs_company ON ats_jobs(company_id);
+CREATE INDEX IF NOT EXISTS idx_ats_jobs_status ON ats_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_ats_jobs_last_seen ON ats_jobs(last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS canonical_jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_key   TEXT UNIQUE NOT NULL,
+    company_id      INTEGER,
+    company         TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    location_text   TEXT,
+    city            TEXT,
+    state           TEXT,
+    country         TEXT,
+    is_remote       INTEGER DEFAULT 0,
+    hybrid          INTEGER DEFAULT 0,
+    employment_type TEXT,
+    salary_min      REAL,
+    salary_max      REAL,
+    currency        TEXT DEFAULT 'AUD',
+    description_html TEXT DEFAULT '',
+    description     TEXT DEFAULT '',
+    url             TEXT DEFAULT '',
+    apply_url       TEXT,
+    posted_at       TEXT,
+    first_seen_at   TEXT NOT NULL,
+    last_seen_at    TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    closed_at       TEXT,
+    status          TEXT DEFAULT 'open',
+    repost          INTEGER DEFAULT 0,
+    source_ids      TEXT DEFAULT '[]',
+    score           INTEGER DEFAULT 0,
+    score_breakdown TEXT DEFAULT '{}',
+    created_at      TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_canonical_company ON canonical_jobs(company_id);
+CREATE INDEX IF NOT EXISTS idx_canonical_status ON canonical_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_canonical_last_seen ON canonical_jobs(last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_canonical_score ON canonical_jobs(score DESC);
 """
 
 
@@ -84,8 +181,35 @@ class JobDB:
         self._init_schema()
 
     def _init_schema(self) -> None:
+        self._migrate_canonical_columns()
         self.conn.executescript(SCHEMA_SQL)
         self._migrate()
+
+    def _migrate_canonical_columns(self) -> None:
+        """Add score columns to a pre-existing canonical_jobs table.
+
+        Runs before SCHEMA_SQL so the `CREATE INDEX ... score` can't fail on an
+        old table that predates the score columns.
+        """
+        names = [
+            r[0]
+            for r in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='canonical_jobs'"
+            ).fetchall()
+        ]
+        if not names:
+            return
+        cols = {
+            r[1]
+            for r in self.conn.execute("PRAGMA table_info(canonical_jobs)").fetchall()
+        }
+        if "score" not in cols:
+            self.conn.execute("ALTER TABLE canonical_jobs ADD COLUMN score INTEGER DEFAULT 0")
+        if "score_breakdown" not in cols:
+            self.conn.execute(
+                "ALTER TABLE canonical_jobs ADD COLUMN score_breakdown TEXT DEFAULT '{}'"
+            )
+        self.conn.commit()
 
     def _migrate(self) -> None:
         """Add columns that may be missing in databases created before this version."""
@@ -96,8 +220,17 @@ class JobDB:
         if "content_key" not in cols:
             self.conn.execute("ALTER TABLE jobs ADD COLUMN content_key TEXT")
             self.conn.commit()
+        if "last_seen_at" not in cols:
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN last_seen_at TEXT")
+            self.conn.execute(
+                "UPDATE jobs SET last_seen_at = date_scraped WHERE last_seen_at IS NULL"
+            )
+            self.conn.commit()
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_content_key ON jobs(content_key)"
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_last_seen_at ON jobs(last_seen_at DESC)"
         )
         self.conn.commit()
 
@@ -114,16 +247,27 @@ class JobDB:
         existing = cur.fetchone()
         if existing:
             old_status = existing["status"]
-            new_status = job.status if old_status in ("new", "filtered") else old_status
-            self.conn.execute(
-                "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
-                (
-                    job.score,
-                    json.dumps(job.score_breakdown),
-                    new_status,
-                    existing["id"],
-                ),
+            new_status = (
+                job.status
+                if old_status in ("new", "filtered", "expired", "low_score")
+                else old_status
             )
+            if old_status == "rejected":
+                self.conn.execute(
+                    "UPDATE jobs SET last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
+                    (job.date_scraped.isoformat(), existing["id"]),
+                )
+            else:
+                self.conn.execute(
+                    "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
+                    (
+                        job.score,
+                        json.dumps(job.score_breakdown),
+                        new_status,
+                        job.date_scraped.isoformat(),
+                        existing["id"],
+                    ),
+                )
             self.conn.commit()
             return False, existing["id"]
 
@@ -135,16 +279,36 @@ class JobDB:
             )
             content_match = cur.fetchone()
             if content_match:
-                if job.score > content_match["score"]:
+                if content_match["status"] == "expired":
                     self.conn.execute(
-                        "UPDATE jobs SET score = ?, score_breakdown = ?, updated_at = datetime('now') WHERE id = ?",
+                        "UPDATE jobs SET score = ?, score_breakdown = ?, status = ?, last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
                         (
                             job.score,
                             json.dumps(job.score_breakdown),
+                            job.status,
+                            job.date_scraped.isoformat(),
                             content_match["id"],
                         ),
                     )
-                    self.conn.commit()
+                elif (
+                    content_match["status"] != "rejected"
+                    and job.score > content_match["score"]
+                ):
+                    self.conn.execute(
+                        "UPDATE jobs SET score = ?, score_breakdown = ?, last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
+                        (
+                            job.score,
+                            json.dumps(job.score_breakdown),
+                            job.date_scraped.isoformat(),
+                            content_match["id"],
+                        ),
+                    )
+                else:
+                    self.conn.execute(
+                        "UPDATE jobs SET last_seen_at = ?, updated_at = datetime('now') WHERE id = ?",
+                        (job.date_scraped.isoformat(), content_match["id"]),
+                    )
+                self.conn.commit()
                 return False, content_match["id"]
 
         comp = job.compensation
@@ -153,9 +317,9 @@ class JobDB:
                 dedup_key, source, source_id, url, title, company,
                 city, state, country, is_remote, description, job_type,
                 comp_min, comp_max, comp_currency, comp_interval,
-                date_posted, date_scraped, score, score_breakdown, status, notes,
+                date_posted, date_scraped, last_seen_at, score, score_breakdown, status, notes,
                 search_term, content_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.dedup_key,
                 job.source.value,
@@ -174,6 +338,7 @@ class JobDB:
                 comp.currency if comp else "USD",
                 comp.interval.value if comp and comp.interval else None,
                 job.date_posted.isoformat() if job.date_posted else None,
+                job.date_scraped.isoformat(),
                 job.date_scraped.isoformat(),
                 job.score,
                 json.dumps(job.score_breakdown),
@@ -241,12 +406,38 @@ class JobDB:
         if status in ("applied", "interview", "offer"):
             updates.append("applied_date = COALESCE(applied_date, ?)")
             params.append(date.today().isoformat())
+        if status == "rejected":
+            # Demote so rejected jobs sink out of score-ordered views and can't
+            # be re-alerted. Stash the original score for reference.
+            updates.append("score = 0")
+            updates.append(
+                "score_breakdown = json_set("
+                "CASE WHEN json_valid(score_breakdown) THEN score_breakdown ELSE '{}' END, "
+                "'$.pre_reject_score', COALESCE("
+                "json_extract(CASE WHEN json_valid(score_breakdown) THEN score_breakdown ELSE '{}' END, '$.pre_reject_score'), "
+                "score))"
+            )
         params.append(job_id)
         self.conn.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", params)
         self.conn.commit()
 
     def mark_applied(self, job_id: int, notes: str = "") -> None:
         self.update_status(job_id, "applied", notes)
+
+    def expire_old_jobs(self, days: int) -> int:
+        """Mark `new`/`filtered` jobs unseen for `days` as expired.
+
+        User-tracked statuses (applied/interview/offer/rejected) are never
+        touched — they are history, not inventory.
+        """
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        cur = self.conn.execute(
+            """UPDATE jobs SET status = 'expired', updated_at = datetime('now')
+            WHERE status IN ('new', 'filtered', 'low_score') AND last_seen_at < ?""",
+            (cutoff,),
+        )
+        self.conn.commit()
+        return cur.rowcount
 
     def get_recent_jobs(self, days: int = 14, limit: int = 50) -> list[Job]:
         """Return recent jobs + any with active status, for bot LLM context."""
@@ -519,7 +710,8 @@ class JobDB:
             "applied": 2,
             "new": 3,
             "filtered": 4,
-            "rejected": 5,
+            "low_score": 5,
+            "rejected": 6,
         }
         return min(
             rows,
@@ -573,4 +765,487 @@ class JobDB:
             if row["applied_date"]
             else None,
             search_term=row["search_term"],
+        )
+
+    # --- ATS discovery subsystem (see ATS_DISCOVERY.md) ---
+
+    # --- Company registry ---
+
+    def upsert_company(self, company: Company) -> tuple[bool, int]:
+        """Insert or update a company by name. Returns (is_new, row_id)."""
+        cur = self.conn.execute(
+            "SELECT id FROM companies WHERE name = ?", (company.name,)
+        )
+        existing = cur.fetchone()
+        if existing:
+            # Only overwrite the ATS provider when the incoming value is a real
+            # provider, not the UNKNOWN default from a name-only candidate.
+            if company.ats == ATSProvider.UNKNOWN:
+                self.conn.execute(
+                    """UPDATE companies SET
+                        domain = COALESCE(?, domain),
+                        careers_url = COALESCE(?, careers_url),
+                        ats_slug = COALESCE(?, ats_slug),
+                        last_verified_at = COALESCE(?, last_verified_at),
+                        updated_at = datetime('now')
+                    WHERE id = ?""",
+                    (
+                        company.domain,
+                        company.careers_url,
+                        company.ats_slug,
+                        company.last_verified_at.isoformat()
+                        if company.last_verified_at
+                        else None,
+                        existing["id"],
+                    ),
+                )
+            else:
+                self.conn.execute(
+                    """UPDATE companies SET
+                        domain = COALESCE(?, domain),
+                        careers_url = COALESCE(?, careers_url),
+                        ats = ?,
+                        ats_slug = COALESCE(?, ats_slug),
+                        last_verified_at = COALESCE(?, last_verified_at),
+                        updated_at = datetime('now')
+                    WHERE id = ?""",
+                    (
+                        company.domain,
+                        company.careers_url,
+                        company.ats.value,
+                        company.ats_slug,
+                        company.last_verified_at.isoformat()
+                        if company.last_verified_at
+                        else None,
+                        existing["id"],
+                    ),
+                )
+            # Union incoming provenance with existing so discovery history
+            # accumulates across runs rather than being overwritten.
+            existing_prov = json.loads(
+                self.conn.execute(
+                    "SELECT discovered_from FROM companies WHERE id = ?",
+                    (existing["id"],),
+                ).fetchone()["discovered_from"]
+                or "[]"
+            )
+            merged_prov = existing_prov + [
+                s for s in company.discovered_from if s not in existing_prov
+            ]
+            self.conn.execute(
+                "UPDATE companies SET discovered_from = ? WHERE id = ?",
+                (json.dumps(merged_prov), existing["id"]),
+            )
+            self.conn.commit()
+            return False, existing["id"]
+
+        cur = self.conn.execute(
+            """INSERT INTO companies (
+                name, domain, careers_url, ats, ats_slug, discovered_from,
+                last_verified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                company.name,
+                company.domain,
+                company.careers_url,
+                company.ats.value,
+                company.ats_slug,
+                json.dumps(company.discovered_from),
+                company.last_verified_at.isoformat()
+                if company.last_verified_at
+                else None,
+            ),
+        )
+        self.conn.commit()
+        return True, cur.lastrowid
+
+    def get_company(self, company_id: int) -> Company | None:
+        row = self.conn.execute(
+            "SELECT * FROM companies WHERE id = ?", (company_id,)
+        ).fetchone()
+        return self._row_to_company(row) if row else None
+
+    def get_company_by_name(self, name: str) -> Company | None:
+        row = self.conn.execute(
+            "SELECT * FROM companies WHERE name = ?", (name,)
+        ).fetchone()
+        return self._row_to_company(row) if row else None
+
+    def get_companies(self, *, ats: str | None = None) -> list[Company]:
+        if ats:
+            rows = self.conn.execute(
+                "SELECT * FROM companies WHERE ats = ?", (ats,)
+            ).fetchall()
+        else:
+            rows = self.conn.execute("SELECT * FROM companies").fetchall()
+        return [self._row_to_company(r) for r in rows]
+
+    def get_pollable_companies(self) -> list[Company]:
+        """Companies with a resolved ATS slug, ready for polling."""
+        rows = self.conn.execute(
+            "SELECT * FROM companies WHERE ats != 'unknown' AND ats_slug IS NOT NULL"
+        ).fetchall()
+        return [self._row_to_company(r) for r in rows]
+
+    @staticmethod
+    def _row_to_company(row: sqlite3.Row) -> Company:
+        return Company(
+            id=row["id"],
+            name=row["name"],
+            domain=row["domain"],
+            careers_url=row["careers_url"],
+            ats=ATSProvider(row["ats"]),
+            ats_slug=row["ats_slug"],
+            discovered_from=json.loads(row["discovered_from"] or "[]"),
+            last_verified_at=datetime.fromisoformat(row["last_verified_at"])
+            if row["last_verified_at"]
+            else None,
+            created_at=datetime.fromisoformat(row["created_at"])
+            if row["created_at"]
+            else None,
+        )
+
+    # --- ATS jobs ---
+
+    def upsert_ats_job(self, job: ATSJob) -> tuple[bool, int]:
+        """Insert or update an ATS job by dedup_key. Returns (is_new, row_id).
+
+        Source records are append-only: an existing row's status/last_seen
+        are refreshed, but the source record itself is never destroyed.
+        """
+        cur = self.conn.execute(
+            "SELECT id FROM ats_jobs WHERE dedup_key = ?", (job.dedup_key,)
+        )
+        existing = cur.fetchone()
+        if existing:
+            self.conn.execute(
+                """UPDATE ats_jobs SET
+                    last_seen_at = ?, updated_at = ?, status = ?,
+                    repost = ?, title = ?, url = ?, apply_url = ?,
+                    location_text = ?, city = ?, state = ?, country = ?,
+                    is_remote = ?, hybrid = ?, employment_type = ?,
+                    description_html = ?, description = ?,
+                    salary_min = ?, salary_max = ?, currency = ?,
+                    posted_at = ?
+                WHERE id = ?""",
+                (
+                    job.last_seen_at.isoformat(),
+                    job.updated_at.isoformat(),
+                    job.status,
+                    int(job.repost),
+                    job.title,
+                    job.url,
+                    job.apply_url,
+                    job.location_text,
+                    job.location.city,
+                    job.location.state,
+                    job.location.country,
+                    int(job.location.is_remote),
+                    int(job.hybrid),
+                    job.employment_type,
+                    job.description_html,
+                    job.description,
+                    job.salary_min,
+                    job.salary_max,
+                    job.currency,
+                    job.posted_at.isoformat() if job.posted_at else None,
+                    existing["id"],
+                ),
+            )
+            self.conn.commit()
+            return False, existing["id"]
+
+        cur = self.conn.execute(
+            """INSERT INTO ats_jobs (
+                dedup_key, source, source_id, company_id, company, title,
+                url, apply_url, location_text, city, state, country,
+                is_remote, hybrid, employment_type, description_html,
+                description, salary_min, salary_max, currency, posted_at,
+                first_seen_at, last_seen_at, updated_at, status, repost
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                job.dedup_key,
+                job.source.value,
+                job.source_id,
+                job.company_id,
+                job.company,
+                job.title,
+                job.url,
+                job.apply_url,
+                job.location_text,
+                job.location.city,
+                job.location.state,
+                job.location.country,
+                int(job.location.is_remote),
+                int(job.hybrid),
+                job.employment_type,
+                job.description_html,
+                job.description,
+                job.salary_min,
+                job.salary_max,
+                job.currency,
+                job.posted_at.isoformat() if job.posted_at else None,
+                job.first_seen_at.isoformat(),
+                job.last_seen_at.isoformat(),
+                job.updated_at.isoformat(),
+                job.status,
+                int(job.repost),
+            ),
+        )
+        self.conn.commit()
+        return True, cur.lastrowid
+
+    def get_ats_job(self, job_id: int) -> ATSJob | None:
+        row = self.conn.execute(
+            "SELECT * FROM ats_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        return self._row_to_ats_job(row) if row else None
+
+    def get_ats_jobs(
+        self,
+        *,
+        company_id: int | None = None,
+        status: str | None = None,
+        limit: int | None = 100,
+    ) -> list[ATSJob]:
+        clauses = []
+        params: list = []
+        if company_id is not None:
+            clauses.append("company_id = ?")
+            params.append(company_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"SELECT * FROM ats_jobs {where} ORDER BY first_seen_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self.conn.execute(sql, params).fetchall()
+        return [self._row_to_ats_job(r) for r in rows]
+
+    def close_ats_jobs_missing_since(self, cutoff: datetime) -> int:
+        """Mark open ATS jobs not seen since `cutoff` as closed.
+
+        The caller decides the threshold (3 consecutive missing crawls).
+        """
+        cur = self.conn.execute(
+            """UPDATE ats_jobs SET status = 'closed', closed_at = ?, updated_at = ?
+            WHERE status = 'open' AND last_seen_at < ?""",
+            (datetime.now().isoformat(), datetime.now().isoformat(), cutoff.isoformat()),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    @staticmethod
+    def _row_to_ats_job(row: sqlite3.Row) -> ATSJob:
+        return ATSJob(
+            id=row["id"],
+            source=Site(row["source"]),
+            source_id=row["source_id"],
+            company_id=row["company_id"],
+            company=row["company"],
+            title=row["title"],
+            url=row["url"],
+            apply_url=row["apply_url"],
+            location_text=row["location_text"],
+            location=Location(
+                city=row["city"],
+                state=row["state"],
+                country=row["country"],
+                is_remote=bool(row["is_remote"]),
+            ),
+            hybrid=bool(row["hybrid"]),
+            employment_type=row["employment_type"],
+            description_html=row["description_html"],
+            description=row["description"],
+            salary_min=row["salary_min"],
+            salary_max=row["salary_max"],
+            currency=row["currency"],
+            posted_at=datetime.fromisoformat(row["posted_at"])
+            if row["posted_at"]
+            else None,
+            first_seen_at=datetime.fromisoformat(row["first_seen_at"]),
+            last_seen_at=datetime.fromisoformat(row["last_seen_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            closed_at=datetime.fromisoformat(row["closed_at"])
+            if row["closed_at"]
+            else None,
+            status=row["status"],
+            repost=bool(row["repost"]),
+        )
+
+    # --- Canonical jobs ---
+
+    def upsert_canonical(self, job: CanonicalJob) -> tuple[bool, int]:
+        """Insert or update a canonical record by canonical_key.
+
+        Returns (is_new, row_id). Mutable fields are overwritten by the
+        incoming projection (the caller merges before calling); first_seen_at
+        is preserved on update.
+        """
+        cur = self.conn.execute(
+            "SELECT id, first_seen_at FROM canonical_jobs WHERE canonical_key = ?",
+            (job.canonical_key,),
+        )
+        existing = cur.fetchone()
+        if existing:
+            self.conn.execute(
+                """UPDATE canonical_jobs SET
+                    company_id = ?, company = ?, title = ?, location_text = ?,
+                    city = ?, state = ?, country = ?, is_remote = ?, hybrid = ?,
+                    employment_type = ?, salary_min = ?, salary_max = ?,
+                    currency = ?, description_html = ?, description = ?,
+                    url = ?, apply_url = ?, posted_at = ?,
+                    last_seen_at = ?, updated_at = ?, status = ?, repost = ?,
+                    source_ids = ?, score = ?, score_breakdown = ?
+                WHERE id = ?""",
+                (
+                    job.company_id,
+                    job.company,
+                    job.title,
+                    job.location_text,
+                    job.location.city,
+                    job.location.state,
+                    job.location.country,
+                    int(job.location.is_remote),
+                    int(job.hybrid),
+                    job.employment_type,
+                    job.salary_min,
+                    job.salary_max,
+                    job.currency,
+                    job.description_html,
+                    job.description,
+                    job.url,
+                    job.apply_url,
+                    job.posted_at.isoformat() if job.posted_at else None,
+                    job.last_seen_at.isoformat(),
+                    job.updated_at.isoformat(),
+                    job.status,
+                    int(job.repost),
+                    json.dumps(job.source_ids),
+                    job.score,
+                    json.dumps(job.score_breakdown),
+                    existing["id"],
+                ),
+            )
+            self.conn.commit()
+            return False, existing["id"]
+
+        cur = self.conn.execute(
+            """INSERT INTO canonical_jobs (
+                canonical_key, company_id, company, title, location_text,
+                city, state, country, is_remote, hybrid, employment_type,
+                salary_min, salary_max, currency, description_html,
+                description, url, apply_url, posted_at, first_seen_at,
+                last_seen_at, updated_at, status, repost, source_ids,
+                score, score_breakdown
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                job.canonical_key,
+                job.company_id,
+                job.company,
+                job.title,
+                job.location_text,
+                job.location.city,
+                job.location.state,
+                job.location.country,
+                int(job.location.is_remote),
+                int(job.hybrid),
+                job.employment_type,
+                job.salary_min,
+                job.salary_max,
+                job.currency,
+                job.description_html,
+                job.description,
+                job.url,
+                job.apply_url,
+                job.posted_at.isoformat() if job.posted_at else None,
+                job.first_seen_at.isoformat(),
+                job.last_seen_at.isoformat(),
+                job.updated_at.isoformat(),
+                job.status,
+                int(job.repost),
+                json.dumps(job.source_ids),
+                job.score,
+                json.dumps(job.score_breakdown),
+            ),
+        )
+        self.conn.commit()
+        return True, cur.lastrowid
+
+    def get_canonical(self, canonical_key: str) -> CanonicalJob | None:
+        row = self.conn.execute(
+            "SELECT * FROM canonical_jobs WHERE canonical_key = ?",
+            (canonical_key,),
+        ).fetchone()
+        return self._row_to_canonical(row) if row else None
+
+    def get_canonical_jobs(
+        self, *, status: str | None = None, company_id: int | None = None, limit: int | None = 100
+    ) -> list[CanonicalJob]:
+        clauses = []
+        params: list = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if company_id is not None:
+            clauses.append("company_id = ?")
+            params.append(company_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"SELECT * FROM canonical_jobs {where} ORDER BY last_seen_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self.conn.execute(sql, params).fetchall()
+        return [self._row_to_canonical(r) for r in rows]
+
+    def close_canonical_jobs_missing_since(self, cutoff: datetime) -> int:
+        """Mark open canonical jobs not seen since `cutoff` as closed."""
+        cur = self.conn.execute(
+            """UPDATE canonical_jobs SET status = 'closed', closed_at = ?, updated_at = ?
+            WHERE status = 'open' AND last_seen_at < ?""",
+            (datetime.now().isoformat(), datetime.now().isoformat(), cutoff.isoformat()),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    @staticmethod
+    def _row_to_canonical(row: sqlite3.Row) -> CanonicalJob:
+        return CanonicalJob(
+            id=row["id"],
+            canonical_key=row["canonical_key"],
+            company_id=row["company_id"],
+            company=row["company"],
+            title=row["title"],
+            location_text=row["location_text"],
+            location=Location(
+                city=row["city"],
+                state=row["state"],
+                country=row["country"],
+                is_remote=bool(row["is_remote"]),
+            ),
+            hybrid=bool(row["hybrid"]),
+            employment_type=row["employment_type"],
+            salary_min=row["salary_min"],
+            salary_max=row["salary_max"],
+            currency=row["currency"],
+            description_html=row["description_html"],
+            description=row["description"],
+            url=row["url"],
+            apply_url=row["apply_url"],
+            posted_at=datetime.fromisoformat(row["posted_at"])
+            if row["posted_at"]
+            else None,
+            first_seen_at=datetime.fromisoformat(row["first_seen_at"]),
+            last_seen_at=datetime.fromisoformat(row["last_seen_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            closed_at=datetime.fromisoformat(row["closed_at"])
+            if row["closed_at"]
+            else None,
+            status=row["status"],
+            repost=bool(row["repost"]),
+            source_ids=json.loads(row["source_ids"] or "[]"),
+            score=row["score"],
+            score_breakdown=json.loads(row["score_breakdown"] or "{}"),
         )

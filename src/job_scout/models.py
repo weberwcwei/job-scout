@@ -33,6 +33,12 @@ class Site(str, Enum):
     GLASSDOOR = "glassdoor"
     ZIPRECRUITER = "ziprecruiter"
     BAYT = "bayt"
+    JORA = "jora"
+    GREENHOUSE = "greenhouse"
+    LEVER = "lever"
+    ASHBY = "ashby"
+    WORKDAY = "workday"
+    SMARTRECRUITERS = "smartrecruiters"
 
 
 class JobType(str, Enum):
@@ -334,3 +340,98 @@ class ScrapeParams(BaseModel):
     results_wanted: int = 25
     hours_old: int = 72
     distance_miles: int = 50
+    country: str = "AU"
+
+
+# --- ATS discovery subsystem models (see ATS_DISCOVERY.md) ---
+
+
+class ATSProvider(str, Enum):
+    GREENHOUSE = "greenhouse"
+    LEVER = "lever"
+    ASHBY = "ashby"
+    WORKDAY = "workday"
+    SMARTRECRUITERS = "smartrecruiters"
+    UNKNOWN = "unknown"
+
+
+class Company(BaseModel):
+    """Canonical company registry entry."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int | None = None
+    name: str
+    domain: str | None = None
+    careers_url: str | None = None
+    ats: ATSProvider = ATSProvider.UNKNOWN
+    ats_slug: str | None = None
+    discovered_from: list[str] = Field(default_factory=list)
+    last_verified_at: datetime | None = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class ATSJob(Job):
+    """ATS-normalised job. Extends the shared Job model with ATS fields.
+
+    Source records are append-only; the canonical job is a projection.
+    `repost` flags a reopened requisition so it surfaces as a repost, not a
+    fresh posting. Flat canonical fields follow the schema in
+    ATS_DISCOVERY.md (employment_type, salary_min/max, currency, posted_at).
+    """
+
+    company_id: int | None = None
+    company: str = ""
+    location_text: str | None = None
+    hybrid: bool = False
+    employment_type: str | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    currency: str = "AUD"
+    description_html: str = ""
+    apply_url: str | None = None
+    posted_at: datetime | None = None
+    first_seen_at: datetime = Field(default_factory=datetime.now)
+    last_seen_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    closed_at: datetime | None = None
+    repost: bool = False
+    status: str = "open"
+
+
+class CanonicalJob(BaseModel):
+    """A deduplicated, cross-ATS projection of one role.
+
+    Source records (ATSJob) are append-only; this is the merged view. It
+    tracks first/last seen, closed state, and the set of source records it
+    projects from. `repost` is sticky: once true it stays true.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int | None = None
+    canonical_key: str
+    company_id: int | None = None
+    company: str = ""
+    title: str = ""
+    location_text: str | None = None
+    location: Location = Field(default_factory=Location)
+    hybrid: bool = False
+    employment_type: str | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    currency: str = "AUD"
+    description_html: str = ""
+    description: str = ""
+    url: str = ""
+    apply_url: str | None = None
+    posted_at: datetime | None = None
+    first_seen_at: datetime = Field(default_factory=datetime.now)
+    last_seen_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    closed_at: datetime | None = None
+    status: str = "open"
+    repost: bool = False
+    source_ids: list[str] = Field(default_factory=list)
+    score: int = 0
+    score_breakdown: dict = Field(default_factory=dict)

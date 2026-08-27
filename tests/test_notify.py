@@ -405,8 +405,8 @@ class TestNotifierProfileName:
         notifier = Notifier(cfg, profile_name="frontend")
         notifier.notify_new_jobs([_make_job()])
 
-        text = mock_post.call_args.kwargs["json"]["content"]
-        assert "frontend" in text
+        content = mock_post.call_args.kwargs["json"]["content"]
+        assert "frontend" in content
 
 
 class TestSendEmail:
@@ -613,6 +613,54 @@ class TestSendDiscord:
         assert call_kwargs.kwargs["json"] == {"content": "hello"}
 
     @patch("job_scout.notify.httpx.post")
+    def test_embeds_batched_in_tens(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=204)
+        cfg = DiscordConfig(
+            enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+        )
+        embeds = [{"title": f"job {i}"} for i in range(25)]
+
+        result = send_discord(content="header", embeds=embeds, cfg=cfg)
+
+        assert result is True
+        assert mock_post.call_count == 3
+        first = mock_post.call_args_list[0].kwargs["json"]
+        assert first["content"] == "header"
+        assert len(first["embeds"]) == 10
+        assert len(mock_post.call_args_list[1].kwargs["json"]["embeds"]) == 10
+        assert len(mock_post.call_args_list[2].kwargs["json"]["embeds"]) == 5
+        assert "content" not in mock_post.call_args_list[1].kwargs["json"]
+
+    @patch("job_scout.notify.httpx.post")
+    def test_embeds_respect_field_and_message_character_limits(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=204)
+        cfg = DiscordConfig(
+            enabled=True, webhook_url="https://discord.com/api/webhooks/123/abc"
+        )
+        embeds = [
+            {"title": "t" * 400, "description": "d" * 4000},
+            {"title": "u" * 400, "description": "e" * 4000},
+        ]
+
+        result = send_discord(content="h" * 2500, embeds=embeds, cfg=cfg)
+
+        assert result is True
+        assert mock_post.call_count == 2
+        first = mock_post.call_args_list[0].kwargs["json"]
+        second = mock_post.call_args_list[1].kwargs["json"]
+        assert len(first["content"]) == 2000
+        assert len(first["embeds"][0]["title"]) == 256
+        assert len(first["embeds"][0]["description"]) <= 4096
+        assert sum(
+            len(embed.get("title", "")) + len(embed.get("description", ""))
+            for embed in first["embeds"]
+        ) <= 6000
+        assert sum(
+            len(embed.get("title", "")) + len(embed.get("description", ""))
+            for embed in second["embeds"]
+        ) <= 6000
+
+    @patch("job_scout.notify.httpx.post")
     def test_empty_url_returns_false(self, mock_post):
         cfg = DiscordConfig(enabled=True, webhook_url="")
         result = send_discord(text="hello", cfg=cfg)
@@ -724,8 +772,12 @@ class TestNotifierDiscord:
         mock_post.assert_called_once()
         payload = mock_post.call_args.kwargs["json"]
         assert "content" in payload
-        assert "70" in payload["content"]
-        assert "OtherCo" in payload["content"]
+        assert "embeds" in payload
+        assert len(payload["embeds"]) == 2
+        titles = " ".join(e["title"] for e in payload["embeds"])
+        assert "OtherCo" in titles
+        descs = " ".join(e["description"] for e in payload["embeds"])
+        assert "70" in descs
 
     @patch("job_scout.notify.httpx.post")
     @patch("subprocess.run")
@@ -759,8 +811,10 @@ class TestNotifierDiscord:
             [_make_job(score=75, company="NVIDIA", title="ML Eng")]
         )
 
-        text = mock_post.call_args.kwargs["json"]["content"]
-        assert "75" in text
-        assert "NVIDIA" in text
-        assert "ML Eng" in text
-        assert "example.com" in text
+        payload = mock_post.call_args.kwargs["json"]
+        embed = payload["embeds"][0]
+        assert "NVIDIA" in embed["title"]
+        assert "ML Eng" in embed["title"]
+        assert "75" in embed["description"]
+        assert "example.com" in embed["description"]
+        assert embed["url"] == "https://example.com/job/123"
