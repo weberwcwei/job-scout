@@ -235,3 +235,8 @@ CLAUDE.md
 .agents/
 skills-lock.json
 continue
+
+# Scraped data / export artifacts (local run outputs)
+jobs.csv
+new
+reports/
