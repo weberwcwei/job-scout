@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -24,9 +25,21 @@ log = logging.getLogger("job_scout.discovery.ats_search")
 
 #: Map a board host to (ATSProvider, slug extraction regex).
 _BOARD_PATTERNS: list[tuple[str, ATSProvider, re.Pattern]] = [
-    ("boards.greenhouse.io", ATSProvider.GREENHOUSE, re.compile(r"boards\.greenhouse\.io/([A-Za-z0-9_-]+)")),
-    ("jobs.lever.co", ATSProvider.LEVER, re.compile(r"jobs\.lever\.co/([A-Za-z0-9_-]+)")),
-    ("jobs.ashbyhq.com", ATSProvider.ASHBY, re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_-]+)")),
+    (
+        "boards.greenhouse.io",
+        ATSProvider.GREENHOUSE,
+        re.compile(r"boards\.greenhouse\.io/([A-Za-z0-9_-]+)"),
+    ),
+    (
+        "jobs.lever.co",
+        ATSProvider.LEVER,
+        re.compile(r"jobs\.lever\.co/([A-Za-z0-9_-]+)"),
+    ),
+    (
+        "jobs.ashbyhq.com",
+        ATSProvider.ASHBY,
+        re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_-]+)"),
+    ),
 ]
 
 
@@ -45,7 +58,7 @@ class ATSSearchSource(DiscoverySource):
             for result in soup.select(".result__a, a.result-link, a.result__url"):
                 href = result.get("href")
                 href = href.strip() if isinstance(href, str) else ""
-                board = self._parse_board_url(href)
+                board = self._parse_board_url(self._unwrap_redirect(href))
                 if board:
                     provider, slug = board
                     key = (provider, slug)
@@ -57,6 +70,15 @@ class ATSSearchSource(DiscoverySource):
                             discovered_from=["ats_search"],
                         )
         return list(found.values())
+
+    @staticmethod
+    def _unwrap_redirect(href: str) -> str:
+        parts = urlsplit(href)
+        if parts.netloc == "duckduckgo.com" and parts.path.startswith("/l/"):
+            uddg = parse_qs(parts.query).get("uddg")
+            if uddg:
+                return unquote(uddg[0])
+        return href
 
     def _search(self, client, query: str) -> str | None:
         return self._get_text(client, f"{DDG_HTML_URL}?q={query}")

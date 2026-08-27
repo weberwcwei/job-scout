@@ -128,6 +128,26 @@ class TestATSSearchSource:
         source = ATSSearchSource(config)
         assert source.discover() == []
 
+    def test_unwraps_ddg_redirect_urls(self, config):
+        from job_scout.discovery.ats_search import ATSSearchSource
+
+        html = """
+        <html><body>
+          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fboards.greenhouse.io%2Fcanva">Canva</a>
+          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fjobs.lever.co%2Fatlassian">Atlassian</a>
+        </body></html>
+        """
+        source = ATSSearchSource(config)
+        with respx.mock:
+            respx.get(url__startswith="https://html.duckduckgo.com/html/").mock(
+                return_value=httpx.Response(200, text=html)
+            )
+            companies = source.discover()
+
+        by_name = {c.name: c for c in companies}
+        assert by_name["canva"].ats == ATSProvider.GREENHOUSE
+        assert by_name["atlassian"].ats == ATSProvider.LEVER
+
 
 class TestOrchestrator:
     def test_merge_dedups_and_unions_provenance(self, config, tmp_path):
@@ -148,11 +168,18 @@ class TestOrchestrator:
 
                 return [
                     Company(name="Canva", discovered_from=["funding_news"]),
-                    Company(name="Canva", ats=ATSProvider.GREENHOUSE, ats_slug="canva", discovered_from=["ats_search"]),
+                    Company(
+                        name="Canva",
+                        ats=ATSProvider.GREENHOUSE,
+                        ats_slug="canva",
+                        discovered_from=["ats_search"],
+                    ),
                     Company(name="Atlassian", discovered_from=["vc_portfolios"]),
                 ]
 
-        with patch("job_scout.discovery._build_sources", return_value=[FakeSource(config)]):
+        with patch(
+            "job_scout.discovery._build_sources", return_value=[FakeSource(config)]
+        ):
             summary = run_discovery(config, db)
 
         db.close()

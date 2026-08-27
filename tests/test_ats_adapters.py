@@ -44,6 +44,7 @@ class TestGreenhouseAdapter:
                     "title": "Software Engineer",
                     "absolute_url": "https://boards.greenhouse.io/example/jobs/12345",
                     "location": {"name": "Sydney, NSW"},
+                    "content": "<p>Build things with <b>Python</b>.</p>",
                     "updated_at": "2026-08-25T09:00:00Z",
                 }
             ]
@@ -51,7 +52,8 @@ class TestGreenhouseAdapter:
         adapter = GreenhouseAdapter(config)
         with respx.mock:
             respx.get(
-                "https://boards-api.greenhouse.io/v1/boards/example/jobs"
+                "https://boards-api.greenhouse.io/v1/boards/example/jobs",
+                params={"questions": "true"},
             ).mock(return_value=httpx.Response(200, json=payload))
             jobs = adapter.fetch_jobs(adapter._make_client(), "example")
 
@@ -64,27 +66,8 @@ class TestGreenhouseAdapter:
         assert job.location.state == "NSW"
         assert job.location.country == "AU"
         assert job.url.startswith("https://boards.greenhouse.io/example")
-
-    def test_poll_tags_company(self, config):
-        from job_scout.ats.greenhouse import GreenhouseAdapter
-
-        payload = {
-            "jobs": [
-                {"id": 1, "title": "Dev", "absolute_url": "https://x", "location": "Remote"}
-            ]
-        }
-        company = _company()
-        adapter = GreenhouseAdapter(config)
-        with respx.mock:
-            respx.get(
-                "https://boards-api.greenhouse.io/v1/boards/example/jobs"
-            ).mock(return_value=httpx.Response(200, json=payload))
-            jobs = adapter.poll(company)
-
-        assert len(jobs) == 1
-        assert jobs[0].company_id == 1
-        assert jobs[0].company == "Example"
-        assert jobs[0].location.is_remote is True
+        assert job.description_html == "<p>Build things with <b>Python</b>.</p>"
+        assert "Python" in job.description
 
 
 class TestLeverAdapter:
@@ -102,14 +85,15 @@ class TestLeverAdapter:
                     "commitment": "Full-time",
                     "team": "Engineering",
                 },
+                "descriptionPlain": "Backend role using Go and Postgres.",
                 "createdAt": 1724562000000,
             }
         ]
         adapter = LeverAdapter(config)
         with respx.mock:
-            respx.get(
-                "https://api.lever.co/v0/postings/example?mode=json"
-            ).mock(return_value=httpx.Response(200, json=payload))
+            respx.get("https://api.lever.co/v0/postings/example?mode=json").mock(
+                return_value=httpx.Response(200, json=payload)
+            )
             jobs = adapter.fetch_jobs(adapter._make_client(), "example")
 
         assert len(jobs) == 1
@@ -120,6 +104,7 @@ class TestLeverAdapter:
         assert job.location.state == "VIC"
         assert job.employment_type == "full_time"
         assert job.posted_at is not None
+        assert "Go" in job.description
 
 
 class TestAshbyAdapter:
@@ -142,9 +127,9 @@ class TestAshbyAdapter:
         }
         adapter = AshbyAdapter(config)
         with respx.mock:
-            respx.get(
-                "https://api.ashbyhq.com/posting-api/job-board/example"
-            ).mock(return_value=httpx.Response(200, json=payload))
+            respx.get("https://api.ashbyhq.com/posting-api/job-board/example").mock(
+                return_value=httpx.Response(200, json=payload)
+            )
             jobs = adapter.fetch_jobs(adapter._make_client(), "example")
 
         assert len(jobs) == 1

@@ -15,6 +15,7 @@ import httpx
 
 from job_scout.models import ATSJob, ATSProvider, Site
 from job_scout.ats.base import ATSAdapter, parse_ats_location
+from job_scout.util import html_to_text
 
 log = logging.getLogger("job_scout.ats.greenhouse")
 
@@ -26,7 +27,7 @@ class GreenhouseAdapter(ATSAdapter):
     provider = ATSProvider.GREENHOUSE
 
     def fetch_jobs(self, client: httpx.Client, slug: str) -> list[ATSJob]:
-        url = GREENHOUSE_API.format(slug=slug)
+        url = f"{GREENHOUSE_API.format(slug=slug)}?questions=true"
         payload = self._get_json(client, url)
         if not isinstance(payload, dict):
             return []
@@ -54,6 +55,7 @@ class GreenhouseAdapter(ATSAdapter):
 
         absolute_url = item.get("absolute_url") or ""
         updated = _parse_datetime(item.get("updated_at"))
+        description_html = str(item.get("content") or "")
         return ATSJob(
             source=self.site,
             source_id=source_id,
@@ -62,7 +64,8 @@ class GreenhouseAdapter(ATSAdapter):
             title=title,
             location=location,
             location_text=str(location_text) if location_text else None,
-            description="",
+            description_html=description_html,
+            description=html_to_text(description_html),
             posted_at=_parse_datetime(item.get("updated_at")),
             updated_at=updated or datetime.now(),
             last_seen_at=updated or datetime.now(),

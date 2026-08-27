@@ -50,9 +50,12 @@ class LeverAdapter(ATSAdapter):
         location_text = categories.get("location") or ""
         commitment = categories.get("commitment") or ""
 
-        location = parse_ats_location(location_text if isinstance(location_text, str) else None)
+        location = parse_ats_location(
+            location_text if isinstance(location_text, str) else None
+        )
 
         posted_at = _parse_epoch(item.get("createdAt"))
+        description_plain = str(item.get("descriptionPlain") or "")
 
         return ATSJob(
             source=self.site,
@@ -63,7 +66,7 @@ class LeverAdapter(ATSAdapter):
             location=location,
             location_text=str(location_text) if location_text else None,
             employment_type=normalize_employment_type(commitment),
-            description="",
+            description=description_plain,
             posted_at=posted_at,
             updated_at=posted_at or datetime.now(),
             last_seen_at=posted_at or datetime.now(),

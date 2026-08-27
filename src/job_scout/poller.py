@@ -100,10 +100,12 @@ def run_poll(
             if not dry_run:
                 db.upsert_canonical(canonical)
 
-    # Close detection: fixed threshold of consecutive missing crawls.
+    # Close detection: fixed threshold of consecutive missing crawls. A job
+    # last seen at t0 closes on the Nth missing crawl, where the crawl at t0
+    # itself is the reference (not counted as missing).
     threshold = getattr(cfg.discovery, "missing_crawls_before_close", 3)
     poll_interval_hours = getattr(cfg.schedule, "poll_interval_hours", 12) or 12
-    cutoff = datetime.now() - timedelta(hours=threshold * poll_interval_hours)
+    cutoff = datetime.now() - timedelta(hours=(threshold - 1) * poll_interval_hours)
     if not dry_run:
         summary["closed_at_jobs"] = db.close_ats_jobs_missing_since(cutoff)
         summary["closed_canonical"] = db.close_canonical_jobs_missing_since(cutoff)
