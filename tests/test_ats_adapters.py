@@ -53,7 +53,7 @@ class TestGreenhouseAdapter:
         with respx.mock:
             respx.get(
                 "https://boards-api.greenhouse.io/v1/boards/example/jobs",
-                params={"questions": "true"},
+                params={"content": "true"},
             ).mock(return_value=httpx.Response(200, json=payload))
             jobs = adapter.fetch_jobs(adapter._make_client(), "example")
 

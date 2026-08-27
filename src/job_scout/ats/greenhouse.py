@@ -1,9 +1,9 @@
 """Greenhouse adapter: public board API.
 
 Endpoint: https://boards-api.greenhouse.io/v1/boards/<slug>/jobs
-Each item: {"id", "title", "absolute_url", "location", "metadata"
-(via the ?questions=true query param), "updated_at"}. The plain endpoint
-omits description/metadata; append `?questions=true` to include fields.
+Each item: {"id", "title", "absolute_url", "location", "content",
+"updated_at"}. The plain endpoint omits description; append `?content=true`
+to include the HTML description in the `content` field.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class GreenhouseAdapter(ATSAdapter):
     provider = ATSProvider.GREENHOUSE
 
     def fetch_jobs(self, client: httpx.Client, slug: str) -> list[ATSJob]:
-        url = f"{GREENHOUSE_API.format(slug=slug)}?questions=true"
+        url = f"{GREENHOUSE_API.format(slug=slug)}?content=true"
         payload = self._get_json(client, url)
         if not isinstance(payload, dict):
             return []
