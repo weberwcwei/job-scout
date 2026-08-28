@@ -240,3 +240,7 @@ continue
 jobs.csv
 new
 reports/
+
+# Track project docs (global gitignore has a bare *.md rule)
+!AGENTS.md
+!ATS_DISCOVERY.md
