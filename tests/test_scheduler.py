@@ -327,11 +327,21 @@ class TestScheduleCLI:
         """schedule command (no flags) shows status."""
         from typer.testing import CliRunner
         from job_scout.cli import app
+        from job_scout.config import AppConfig
 
         plist_dir = tmp_path / "LaunchAgents"
         plist_dir.mkdir()
 
-        with patch("job_scout.scheduler.PLIST_DIR", plist_dir):
+        cfg = MagicMock(spec=AppConfig)
+        cfg._config_path = tmp_path / "config.yaml"
+        cfg.config_name = None
+        cfg.db_path = None
+        cfg.report_dir = Path.home() / ".local" / "share" / "job-scout" / "reports"
+
+        with (
+            patch("job_scout.cli._get_config", return_value=cfg),
+            patch("job_scout.scheduler.PLIST_DIR", plist_dir),
+        ):
             runner = CliRunner()
             result = runner.invoke(app, ["schedule"])
 
@@ -379,11 +389,21 @@ class TestScheduleCLI:
         """schedule --uninstall calls uninstaller."""
         from typer.testing import CliRunner
         from job_scout.cli import app
+        from job_scout.config import AppConfig
 
         plist_dir = tmp_path / "LaunchAgents"
         plist_dir.mkdir()
 
-        with patch("job_scout.scheduler.PLIST_DIR", plist_dir):
+        cfg = MagicMock(spec=AppConfig)
+        cfg._config_path = tmp_path / "config.yaml"
+        cfg.config_name = None
+        cfg.db_path = None
+        cfg.report_dir = Path.home() / ".local" / "share" / "job-scout" / "reports"
+
+        with (
+            patch("job_scout.cli._get_config", return_value=cfg),
+            patch("job_scout.scheduler.PLIST_DIR", plist_dir),
+        ):
             runner = CliRunner()
             result = runner.invoke(app, ["schedule", "--uninstall"])
 
