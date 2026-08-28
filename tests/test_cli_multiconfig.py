@@ -129,8 +129,9 @@ class TestCheckRespectsConfigFlag:
         config_file = tmp_path / "myconfig.yaml"
         _write_config(config_file)
 
-        with patch("job_scout.cli._config_override", config_file):
-            result = runner.invoke(app, ["check"])
+        # The Typer callback resets _config_override on every invoke, so patch
+        # the module global has no effect once the CLI runs. Pass --config.
+        result = runner.invoke(app, ["--config", str(config_file), "check"])
 
         assert result.exit_code == 0 or result.exit_code == 2  # 2 = warnings
         assert "Config is valid" in result.output
