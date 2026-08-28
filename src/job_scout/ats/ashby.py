@@ -12,8 +12,8 @@ from datetime import datetime
 
 import httpx
 
-from job_scout.models import ATSJob, ATSProvider, Site
 from job_scout.ats.base import ATSAdapter, normalize_employment_type, parse_ats_location
+from job_scout.models import ATSJob, ATSProvider, Site
 from job_scout.util import html_to_text
 
 log = logging.getLogger("job_scout.ats.ashby")

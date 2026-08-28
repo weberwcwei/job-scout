@@ -7,13 +7,13 @@ from datetime import datetime
 
 from job_scout.models import (
     COUNTRIES,
+    US_STATES,
     Compensation,
     Job,
     JobType,
     Location,
     ScrapeParams,
     Site,
-    US_STATES,
 )
 from job_scout.scrapers import BaseScraper
 from job_scout.scrapers.constants import (

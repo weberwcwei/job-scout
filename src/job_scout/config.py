@@ -94,7 +94,7 @@ class ScoringConfig(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_alert_states(self) -> ScoringConfig:
-        from job_scout.models import US_STATES, _STATE_CODES
+        from job_scout.models import _STATE_CODES, US_STATES
 
         normalized: list[str] = []
         for s in self.alert_states:

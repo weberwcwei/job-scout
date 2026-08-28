@@ -10,7 +10,11 @@ from __future__ import annotations
 import logging
 
 from job_scout.discovery.base import DiscoverySource
-from job_scout.discovery.constants import VC_PORTFOLIO_URLS, clean_company_name, looks_like_company
+from job_scout.discovery.constants import (
+    VC_PORTFOLIO_URLS,
+    clean_company_name,
+    looks_like_company,
+)
 from job_scout.models import Company
 
 log = logging.getLogger("job_scout.discovery.vc_portfolios")

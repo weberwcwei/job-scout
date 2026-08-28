@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from bs4 import BeautifulSoup
 
 from job_scout.discovery.base import DiscoverySource
-from job_scout.discovery.constants import DDG_HTML_URL, ATS_SEARCH_QUERY
+from job_scout.discovery.constants import ATS_SEARCH_QUERY, DDG_HTML_URL
 from job_scout.models import ATSProvider, Company
 
 log = logging.getLogger("job_scout.discovery.ats_search")

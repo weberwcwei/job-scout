@@ -8,11 +8,10 @@ adapter class.
 
 from __future__ import annotations
 
-from job_scout.models import ATSProvider
-
 from job_scout.ats.ashby import AshbyAdapter
 from job_scout.ats.greenhouse import GreenhouseAdapter
 from job_scout.ats.lever import LeverAdapter
+from job_scout.models import ATSProvider
 
 _REGISTRY: dict[ATSProvider, type] = {
     ATSProvider.GREENHOUSE: GreenhouseAdapter,

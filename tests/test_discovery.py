@@ -195,3 +195,38 @@ class TestOrchestrator:
         summary = run_discovery(config, db)
         db.close()
         assert summary["enabled"] is False
+
+    def test_dry_run_does_not_persist(self, config, tmp_path):
+        """discover --dry-run must report candidates but write nothing."""
+        from job_scout.db import JobDB
+        from job_scout.discovery import run_discovery
+        from unittest.mock import patch
+
+        class FakeSource:
+            name = "fake"
+
+            def __init__(self, cfg):
+                self.config = cfg
+
+            def discover(self):
+                from job_scout.models import Company
+
+                return [Company(name="Canva", discovered_from=["vc_portfolios"])]
+
+        db = JobDB(tmp_path / "t.db")
+        with patch(
+            "job_scout.discovery._build_sources", return_value=[FakeSource(config)]
+        ):
+            summary = run_discovery(config, db, dry_run=True)
+            # Nothing persisted by dry run.
+            assert summary["candidates"] == 1
+            assert summary["added"] == 0
+            assert summary["total"] == 0
+            assert db.get_companies() == []
+
+            # A real run on the same DB persists the candidate.
+            summary = run_discovery(config, db, dry_run=False)
+            assert summary["added"] == 1
+            assert [c.name for c in db.get_companies()] == ["Canva"]
+
+        db.close()

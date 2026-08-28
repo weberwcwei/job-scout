@@ -274,7 +274,7 @@ class UIHandler(BaseHTTPRequestHandler):
         except ValueError:
             return None
 
-    def log_message(self, format: str, *args) -> None:  # noqa: A002 - base hook signature
+    def log_message(self, format: str, *args) -> None:
         log.debug("%s - %s", self.address_string(), format % args)
 
 
@@ -286,7 +286,7 @@ def _create_server(db_path: Path, host: str, port: int) -> tuple[ThreadingHTTPSe
             self._scoped: JobDB | None = None
             super().__init__(*args, **kwargs)
 
-        def setup(self) -> None:  # noqa: D401 - BaseHTTPRequestHandler hook
+        def setup(self) -> None:
             super().setup()
             self._scoped = JobDB(db_path)
 

@@ -10,15 +10,14 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import yaml
+from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
-import yaml
-from pydantic import ValidationError
-
 from job_scout.config import (
-    DEFAULT_DB_PATH,
     DATA_DIR,
+    DEFAULT_DB_PATH,
     XDG_CONFIG_PATH,
     AppConfig,
     load_config,
@@ -1192,14 +1191,15 @@ def rescore(
 def digest():
     """Send daily digest of top job matches via email, Telegram, Slack, and/or Discord."""
     from datetime import timedelta
+
     from job_scout.notify import (
-        send_email,
-        send_telegram,
-        send_slack,
-        send_discord,
+        _esc_discord,
         _esc_md,
         _esc_slack,
-        _esc_discord,
+        send_discord,
+        send_email,
+        send_slack,
+        send_telegram,
     )
 
     cfg = _get_config()

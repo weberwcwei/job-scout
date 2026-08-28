@@ -75,7 +75,7 @@ scoring:
   low_score_threshold: 20         # jobs scoring below this are auto-filed as 'low_score' (not new)
   alert_states:                   # only alert for jobs in these states (empty = all states)
     - "NSW"
-    - "Victoria"
+    - "VIC"
 
 notifications:
   macos:

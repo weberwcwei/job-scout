@@ -125,6 +125,66 @@ class TestScrapeZeroResultWarning:
         assert "Warning" not in result.output
 
 
+class TestScrapeLowScoreAutoFile:
+    def test_low_score_job_autofiled_out_of_new(self, tmp_path):
+        """A job scoring below scoring.low_score_threshold is persisted as
+        `low_score`, so the `new` view excludes it while it remains queryable."""
+        from job_scout.db import JobDB
+        from job_scout.models import Job, Location, Site
+
+        cfg = AppConfig(
+            **{
+                **MINIMAL_RAW,
+                "scoring": {
+                    "low_score_threshold": 25,
+                    "min_alert_score": 40,
+                    "min_display_score": 10,
+                },
+            }
+        )
+        db_path = tmp_path / "test.db"
+        setup_db = JobDB(db_path)
+
+        def _make_db(_cfg=None):
+            return JobDB(db_path)
+
+        low_job = Job(
+            source=Site.LINKEDIN,
+            source_id="x1",
+            url="https://example.com/x1",
+            title="Warehouse Associate",
+            company="TestCo",
+            location=Location(city="SF", state="CA"),
+            description="repetitive physical labour",
+            score=10,
+            score_breakdown={},
+        )
+
+        mock_scraper = MagicMock()
+        mock_scraper.scrape.return_value = [low_job]
+
+        with (
+            patch("job_scout.cli._get_config", return_value=cfg),
+            patch("job_scout.cli._get_db", side_effect=_make_db),
+            patch("job_scout.cli.get_scraper", return_value=mock_scraper),
+        ):
+            result = runner.invoke(app, ["scrape"])
+
+        assert result.exit_code == 0
+        assert "1 low score" in result.output
+
+        # Persisted with low_score status out of the `new` view.
+        inspect_db = JobDB(db_path)
+        stored = inspect_db.get_job(1)
+        assert stored is not None
+        assert stored.status == "low_score"
+        assert inspect_db.get_jobs(status="new") == []
+        assert len(inspect_db.get_jobs(status="low_score")) == 1
+        inspect_db.close()
+
+        setup_db.close()
+
+
 class TestScrapeUnknownSite:
     def test_unknown_site_fails_fast(self, tmp_path):
         """Config sites that no longer have a scraper exit 1 with a clear message."""
